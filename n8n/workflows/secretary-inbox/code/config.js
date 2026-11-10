@@ -29,4 +29,23 @@ const listUrl = `${graphBase}/mailFolders/inbox/messages?${Object.entries(query)
 // run has claimed the same email since, before anything is sent.
 const claim = `${cfg.categories.claimPrefix}${$execution.id}`;
 
-return [{ json: { ...cfg, graphBase, since, listUrl, claim } }];
+// Which window we're in (business hours or after hours), its reply goal, and
+// when the next check runs. Mirrors the schedule built from cfg.schedule.
+const S = cfg.schedule;
+const B = S.businessHours;
+const nowMs = Date.now();
+const parts = Object.fromEntries(
+  new Intl.DateTimeFormat('en-US', { timeZone: S.timezone, hour: 'numeric', minute: 'numeric', hourCycle: 'h23' })
+    .formatToParts(new Date(nowMs))
+    .map((p) => [p.type, p.value]),
+);
+const minuteOfDay = (Number(parts.hour) % 24) * 60 + Number(parts.minute);
+const inBusiness = (t) => Math.floor(t / 60) >= B.startHour && Math.floor(t / 60) < B.endHour;
+const pollAt = (t) => t % (inBusiness(t) ? B.pollMinutes : S.afterHours.pollMinutes) === 0;
+let minutesToNextPoll = 1;
+while (minutesToNextPoll < 1440 && !pollAt((minuteOfDay + minutesToNextPoll) % 1440)) minutesToNextPoll += 1;
+const businessHours = inBusiness(minuteOfDay);
+const replyWithinMinutes = (businessHours ? B : S.afterHours).replyWithinMinutes;
+const nextPollAt = new Date(nowMs + minutesToNextPoll * 60000).toISOString();
+
+return [{ json: { ...cfg, graphBase, since, listUrl, claim, businessHours, replyWithinMinutes, nextPollAt } }];

@@ -1,13 +1,14 @@
 // Builds the "Secretary Inbox" n8n workflow.
 //
-// How it works, in one breath: every minute it lists recent Inbox mail, skips
+// How it works, in one breath: on a schedule (every 12 minutes from 7 a.m. to
+// 7 p.m., hourly otherwise; see schedule in n8n/config/secretary.json) it lists recent Inbox mail, skips
 // anything already tagged or machine-sent, tags the rest "working", asks Claude
 // to classify and draft a reply, applies hard safety rules, then either sends
 // the reply, or sends a short holding reply and leaves Claude's full draft in
 // Drafts for Joel. Finally it tags the email so it is never answered twice.
 // Any step that fails for an email flags that email for Joel.
 //
-// One schedule trigger, on purpose: runs start a minute apart, so normally the
+// One schedule trigger, on purpose: runs start minutes apart, so normally the
 // "working" tag lands long before the next run looks. For the rare overlap
 // (slow Graph, queued runs) each run tags its claim and re-checks it right
 // before acting; only the run whose claim is still there carries on.
@@ -18,13 +19,38 @@ export const meta = {
   key: 'secretary-inbox',
   name: 'Secretary Inbox',
   description:
-    'Answers email to secretary@1892club.com within minutes. Managed in GitHub (n8n/workflows/secretary-inbox): edits made in n8n are overwritten on the next deploy.',
+    'Answers email to secretary@1892club.com: within 18 minutes from 7 a.m. to 7 p.m. Eastern, within 75 minutes otherwise. Managed in GitHub (n8n/workflows/secretary-inbox): edits made in n8n are overwritten on the next deploy.',
 };
 
 const OUTLOOK = 'microsoftOutlookOAuth2Api';
 const ANTHROPIC = 'anthropicApi';
 
 const CFG = "$('Config').first().json";
+
+// Cron rules for the one schedule trigger: every businessHours.pollMinutes
+// from startHour to endHour, every afterHours.pollMinutes the rest of the day.
+// Times are in schedule.timezone (the workflow's timezone).
+export function scheduleCrons(schedule) {
+  const { startHour, endHour } = schedule.businessHours;
+  if (!(Number.isInteger(startHour) && Number.isInteger(endHour) && startHour >= 0 && startHour < endHour && endHour <= 24)) {
+    throw new Error('schedule.businessHours needs whole startHour < endHour between 0 and 24');
+  }
+  const hours = (from, to) => (from === to - 1 ? `${from}` : `${from}-${to - 1}`);
+  const minutes = (every, label) => {
+    if (every === 60) return '0';
+    if (Number.isInteger(every) && every > 0 && every < 60 && 60 % every === 0) return `*/${every}`;
+    throw new Error(`schedule.${label}.pollMinutes must divide an hour evenly (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30) or be 60`);
+  };
+  const crons = [`${minutes(schedule.businessHours.pollMinutes, 'businessHours')} ${hours(startHour, endHour)} * * *`];
+  const after = [startHour > 0 ? hours(0, startHour) : '', endHour < 24 ? hours(endHour, 24) : ''].filter(Boolean);
+  if (after.length) crons.push(`${minutes(schedule.afterHours.pollMinutes, 'afterHours')} ${after.join(',')} * * *`);
+  for (const w of ['businessHours', 'afterHours']) {
+    if (schedule[w].pollMinutes + 5 > schedule[w].replyWithinMinutes) {
+      throw new Error(`schedule.${w}: pollMinutes + about 5 minutes of work must fit inside replyWithinMinutes`);
+    }
+  }
+  return crons;
+}
 const GRAPH = `${CFG}.graphBase`;
 
 export function build({ code, readJson, readText }) {
@@ -102,12 +128,12 @@ export function build({ code, readJson, readText }) {
 
   const nodes = [
     {
-      name: 'Every Minute',
+      name: 'Check Inbox',
       type: 'n8n-nodes-base.scheduleTrigger',
       typeVersion: 1.2,
       position: at(0, 0.5),
       parameters: {
-        rule: { interval: [{ field: 'minutes', minutesInterval: config.pollMinutes ?? 1 }] },
+        rule: { interval: scheduleCrons(config.schedule).map((expression) => ({ field: 'cronExpression', expression })) },
       },
     },
     codeNode('Config', at(1, 0.5), 'config.js', 'all', { CONFIG: config }),
@@ -226,7 +252,7 @@ export function build({ code, readJson, readText }) {
   const main = (...targets) => ({ main: targets.map((t) => (t ? t.map((node) => ({ node, type: 'main', index: 0 })) : [])) });
 
   const connections = {
-    'Every Minute': main(['Config']),
+    'Check Inbox': main(['Config']),
     Config: main(['List Inbox']),
     'List Inbox': main(['Select Messages']),
     'Select Messages': main(['Real Person?']),
@@ -255,7 +281,7 @@ export function build({ code, readJson, readText }) {
     settings: {
       executionOrder: 'v1',
       executionTimeout: 420,
-      timezone: 'America/New_York',
+      timezone: config.schedule.timezone,
       saveDataErrorExecution: 'all',
       saveDataSuccessExecution: 'all',
       saveManualExecutions: true,

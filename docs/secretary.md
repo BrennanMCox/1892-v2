@@ -1,11 +1,16 @@
 # Secretary Inbox
 
-The goal: every real person who writes to **secretary@1892club.com** gets a reply within 15 minutes, any hour of the day.
+The goal: every real person who writes to **secretary@1892club.com** gets a reply
+
+- within **18 minutes** from 7 a.m. to 7 p.m. (Eastern time), and
+- within **75 minutes** overnight, from 7 p.m. to 7 a.m.
+
+To do that, it checks the Inbox every 12 minutes from 7 a.m. to 7 p.m. and every hour on the hour overnight. A check takes a few minutes at most, so the slowest normal case is an email that arrives just after a check: 12 minutes of waiting plus the work, inside 18 (or 60 plus the work, inside 75).
 
 ## What it does
 
 ```
-Every minute ─> list the last 6 hours of Inbox mail
+Each check ─> list the last 6 hours of Inbox mail
    └─> skip anything already handled, or automated (newsletters, receipts,
        out-of-office replies, bounces, meeting invites, our own mail)
    └─> tag the email "Secretary: Working"
@@ -36,11 +41,12 @@ Claude may only state facts written in `n8n/knowledge/club.md`. If a reply would
 
 ### When something goes wrong
 
-- **Claude has a passing error** (overloaded, timeout): the email is tagged "Secretary: Retrying" and the next run, a minute later, tries once more. If that fails too, the fixed holding reply goes out and the email is held for Joel.
+- **Claude has a passing error** (overloaded, timeout): if the next check is early enough to still meet the reply goal, the email is tagged "Secretary: Retrying" and that check tries once more. With checks every 12 minutes and an 18-minute goal, that's usually too late, so the fixed holding reply goes out right away and the email is held for Joel.
 - **Claude declines or returns something unusable:** the fixed holding reply goes out and the email is held for Joel.
 - **Creating, saving or sending a reply fails:** that email is flagged and tagged "Secretary: Needs Joel". The other emails in the run carry on.
 - **A run dies part way:** the email stays tagged "Working". After 8 minutes (`stuckAfterMinutes`) a later run takes it over. If it finds a reply already went out, or can't read the thread to check, it doesn't reply again; it flags the email for Joel. If the second attempt dies too, the email is flagged for Joel without another try.
-- **The 15 minutes:** a new email is picked up within a minute and normally answered within two or three. Only one run starts per minute, and each run tags the emails it claims. If runs ever overlap (a slow Microsoft 365 or a queued n8n), each one checks its claim again just before replying, and only the run that still holds it goes ahead.
+- **A run dies part way, and the reply goal:** recovery happens at the first check at least 8 minutes later, so an email caught in a crashed run can miss its goal by one check. That needs Microsoft 365 or n8n to fail mid-run, and the email is flagged for Joel either way.
+- **Two runs at once:** checks are minutes apart, and each run tags the emails it claims. If runs ever overlap (a slow Microsoft 365 or a queued n8n), each one checks its claim again just before replying, and only the run that still holds it goes ahead.
 
 ## Going live, safely
 
@@ -57,20 +63,24 @@ Claude may only state facts written in `n8n/knowledge/club.md`. If a reply would
 | `mailboxAddress` | The mailbox's own address, so it never answers itself. |
 | `processReceivedAfter` | Ignore mail received before this time (ISO 8601, UTC). |
 | `maxAgeHours` | Never answer mail older than this. |
-| `maxPerRun` | At most this many emails go to Claude per run; the rest wait a minute. Automated mail doesn't count. Outlook calls are made one a second, so keep this small. |
+| `maxPerRun` | At most this many emails go to Claude per check; any more wait for the next check. Automated mail doesn't count. |
 | `stuckAfterMinutes` | Take over an email still tagged "Working" after this long. Keep it above 7 (the run time limit). |
-| `pollMinutes` | How often it checks the Inbox. 1 meets the 15-minute goal comfortably. |
+| `schedule.timezone` | The time zone for the hours below. |
+| `schedule.businessHours` | `startHour` to `endHour` (24-hour clock; 7 to 19 means 7 a.m. to 7 p.m.), checking every `pollMinutes`, with a goal of `replyWithinMinutes`. |
+| `schedule.afterHours` | The rest of the day: `pollMinutes` (60 means on the hour) and `replyWithinMinutes`. |
 | `model`, `effort`, `maxTokens` | The Claude model and how hard it thinks. |
 | `autoSendMinConfidence`, `autoSendCategories` | When a reply may go out unreviewed (see above). |
 | `staffDomains`, `alwaysHoldSenders` | Senders that are always held for Joel. |
 | `notifyOnHold` | Addresses to email a short notice whenever something is held. Empty means none. |
 | `categories` | The Outlook category names it uses. |
 
+`pollMinutes` must divide an hour evenly (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30) or be 60. The build refuses a schedule whose `pollMinutes`, plus about 5 minutes of work, doesn't fit inside its `replyWithinMinutes`.
+
 The wording, voice and rules Claude follows are in `n8n/prompts/secretary-system.md`.
 
 ## Costs to know about
 
-- **n8n executions.** Checking every minute is about 1,440 runs a day (about 43,000 a month), most of which find nothing. That's fine on a self-hosted n8n. On an n8n Cloud plan with an execution cap, check the cap first. `pollMinutes` of 5 still meets the 15-minute goal at about 8,600 runs a month.
+- **n8n executions.** 60 checks between 7 a.m. and 7 p.m. plus 12 overnight is 72 runs a day, about 2,200 a month.
 - **Claude.** One Claude call per real email. Machine-sent mail is filtered out before Claude sees it.
 
 ## Outlook categories

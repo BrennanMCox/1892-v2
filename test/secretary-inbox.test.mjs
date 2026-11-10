@@ -2,6 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildWorkflow, ROOT } from '../scripts/lib/build.mjs';
+import { scheduleCrons } from '../n8n/workflows/secretary-inbox/workflow.mjs';
 import { runCode } from './helpers/n8n-code.mjs';
 
 const { workflow } = await buildWorkflow('secretary-inbox');
@@ -297,10 +298,19 @@ describe('Decide', () => {
     assert.equal(jobs.at(-1).finalize.categories.at(-1), C.held);
   });
 
-  test('live: a passing Claude error is retried once by the next run', async () => {
-    const jobs = await run([{ error: { message: 'Request failed with status code 529' } }], [ctx()], { mode: 'live' });
+  test('live: a passing Claude error is retried by the next run when that is soon enough', async () => {
+    const soon = { mode: 'live', replyWithinMinutes: 18, nextPollAt: new Date(Date.now() + 60000).toISOString() };
+    const jobs = await run([{ error: { message: 'Request failed with status code 529' } }], [ctx({ receivedDateTime: minsAgo(1) })], soon);
     assert.deepEqual(jobs.map((j) => j.kind), ['finalize']);
     assert.deepEqual(jobs[0].finalize, { categories: ['Blue', C.retry], flag: false });
+  });
+
+  test('live: when the next run is too late for the reply goal, the holding reply goes now', async () => {
+    const late = { mode: 'live', replyWithinMinutes: 18, nextPollAt: new Date(Date.now() + 12 * 60000).toISOString() };
+    const jobs = await run([{ error: { message: 'Request failed with status code 529' } }], [ctx({ receivedDateTime: minsAgo(3) })], late);
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].send, true);
+    assert.match(jobs[0].html, /Joel Guerrero-Sparks/);
   });
 
   test('live: a Claude call that fails twice still sends a holding reply', async () => {
@@ -442,4 +452,40 @@ describe('workflow shape', () => {
       assert.equal(workflow.connections[order[i]].main[0][0].node, order[i + 1]);
     }
   });
+});
+
+describe('schedule', () => {
+  test('every 12 minutes 7 a.m.-7 p.m., hourly otherwise, in Eastern time', () => {
+    assert.deepEqual(scheduleCrons(baseCfg.schedule), ['*/12 7-18 * * *', '0 0-6,19-23 * * *']);
+    assert.equal(workflow.settings.timezone, 'America/New_York');
+    assert.deepEqual(node('Check Inbox').parameters.rule.interval.map((r) => r.expression), scheduleCrons(baseCfg.schedule));
+  });
+
+  test('rejects schedules that cannot meet their reply goal or that cron cannot express', () => {
+    const s = baseCfg.schedule;
+    assert.throws(() => scheduleCrons({ ...s, businessHours: { ...s.businessHours, pollMinutes: 7 } }), /divide an hour/);
+    assert.throws(() => scheduleCrons({ ...s, businessHours: { ...s.businessHours, replyWithinMinutes: 15 } }), /replyWithinMinutes/);
+    assert.throws(() => scheduleCrons({ ...s, businessHours: { ...s.businessHours, startHour: 19, endHour: 7 } }), /startHour/);
+  });
+
+  for (const [utc, business, goal, next] of [
+    ['2026-11-10T14:05:00Z', true, 18, '2026-11-10T14:12:00.000Z'], // 9:05 a.m. ET -> 9:12
+    ['2026-11-10T23:50:00Z', true, 18, '2026-11-11T00:00:00.000Z'], // 6:50 p.m. ET -> 7:00 p.m. (hourly)
+    ['2026-11-11T00:30:00Z', false, 75, '2026-11-11T01:00:00.000Z'], // 7:30 p.m. ET -> 8:00
+    ['2026-11-11T11:30:00Z', false, 75, '2026-11-11T12:00:00.000Z'], // 6:30 a.m. ET -> 7:00
+    ['2026-07-01T11:00:00Z', true, 18, '2026-07-01T11:12:00.000Z'], // 7:00 a.m. EDT (summer time)
+  ]) {
+    test(`Config knows the window and the next check at ${utc}`, async () => {
+      const real = Date.now;
+      Date.now = () => Date.parse(utc);
+      try {
+        const cfg = await config();
+        assert.equal(cfg.businessHours, business);
+        assert.equal(cfg.replyWithinMinutes, goal);
+        assert.equal(cfg.nextPollAt, next);
+      } finally {
+        Date.now = real;
+      }
+    });
+  }
 });

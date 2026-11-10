@@ -176,9 +176,12 @@ for (let i = 0; i < items.length; i += 1) {
   }
 
   const parsed = parseClaude($('Ask Claude').itemMatching(i).json);
-  // A passing API problem: hand the email back for the next run (about a minute
-  // away) to try once more, instead of sending a holding reply straight away.
-  if (parsed.retryable && !ctx.retried) {
+  // A passing API problem: hand the email back to the next run to try once
+  // more, but only if that run is early enough to still meet the reply goal.
+  // Otherwise send the fixed holding reply now and hold it for Joel.
+  const deadline = Date.parse(ctx.receivedDateTime) + cfg.replyWithinMinutes * 60000;
+  const nextRunDone = Date.parse(cfg.nextPollAt) + 5 * 60000;
+  if (parsed.retryable && !ctx.retried && nextRunDone <= deadline) {
     job({ kind: 'finalize', finalize: { categories: [...keep, C.retry], flag: false }, log: { why: [`will retry: ${parsed.problem}`] } });
     continue;
   }
