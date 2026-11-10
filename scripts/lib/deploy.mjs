@@ -7,8 +7,10 @@
 //   2. the n8n credential with that type whose name matches credentials.<type>.name
 //      (looked up with GET /credentials on n8n 2.8+);
 //   3. whatever credential the same node already has in n8n (picked by hand once).
-// Otherwise the node is saved without one (n8n rejects unknown credential ids),
-// and the workflow is left switched off so it can't fail every minute.
+//   4. on n8n before 2.8, which can't list credentials, { id: null, name }, which
+//      those versions bind to the credential of that name themselves.
+// Otherwise the node is saved without one (newer n8n rejects a null id), and
+// after saving, any node still without a credential keeps the workflow off.
 
 import { createHash } from 'node:crypto';
 
@@ -67,6 +69,7 @@ export function prepareWorkflow(
         const prev = existingNodes.get(node.name)?.credentials?.[type];
         if (prev?.id) ref = { id: String(prev.id), name: prev.name || '' };
       }
+      if (!ref && wanted.name && credentialsByName.unlisted) ref = { id: null, name: wanted.name };
       if (ref) creds[type] = ref;
       else if (!problems.some((x) => x.startsWith(`${node.name}:`))) {
         problems.push(`${node.name}: no "${type}" credential${wanted.name ? ` named "${wanted.name}" found` : ' set in n8n/deploy.json'}`);
@@ -138,7 +141,10 @@ async function loadCredentials(client, log) {
       byName.get(c.name).push(c);
     }
   } catch (err) {
-    log(`  note: this n8n can't list credentials (HTTP ${err.status ?? '?'}); n8n will match them by name instead.`);
+    // n8n before 2.8 has no credential list in its API. Those versions bind a
+    // reference with no id to the credential of that name themselves.
+    byName.unlisted = true;
+    log(`  note: this n8n can't list credentials (HTTP ${err.status ?? '?'}); asking n8n to match them by name instead.`);
   }
   return byName;
 }

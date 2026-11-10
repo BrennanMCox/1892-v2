@@ -207,6 +207,13 @@ describe('deploy', () => {
     assert.deepEqual(exp.missing, [], 'the export only needs the Outlook credential');
   });
 
+  test('n8n without a credential list: asks n8n to bind credentials by name', async () => {
+    const n8n = fakeN8n({ noCredList: true });
+    await deployAll(built, { client: n8n.client, deployConfig: cfg(), log: quiet });
+    const ref = n8n.state.workflows[0].nodes.find((n) => n.name === 'List Inbox').credentials.microsoftOutlookOAuth2Api;
+    assert.deepEqual(ref, { id: null, name: 'Outlook' });
+  });
+
   test('node ids are stable UUIDs', () => {
     assert.match(nodeId('k', 'Config'), /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     assert.equal(nodeId('k', 'Config'), nodeId('k', 'Config'));
