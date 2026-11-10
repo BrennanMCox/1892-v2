@@ -1,5 +1,6 @@
 // Code node "Decide" (Run Once for All Items).
-// Input: one Claude API response per email (or an error item if the call failed).
+// Input: one Check Claim result per email (its current categories), paired with
+// that email's Claude API response (or an error item if the call failed).
 // Output: the jobs to run for each email, in order:
 //   kind "reply":    create a reply draft with `html`; send it now if `send`.
 //   kind "notify":   email a held-message notice to cfg.notifyOnHold.
@@ -147,7 +148,13 @@ const jobs = [];
 const items = $input.all();
 for (let i = 0; i < items.length; i += 1) {
   const ctx = $('Build Claude Request').itemMatching(i).json;
-  const keep = (ctx.categories || []).filter((c) => c !== C.processing && c !== C.retry);
+  // Another run claimed this email after us (or already finished it): leave it
+  // to that run. If we can't tell, do nothing; the email stays "Working" and a
+  // later run takes it over safely.
+  const now = items[i].json;
+  if (now.error || !(now.categories || []).includes(cfg.claim)) continue;
+
+  const keep = (ctx.categories || []).filter((c) => c !== C.processing && c !== C.retry && !String(c).startsWith(C.claimPrefix));
   const tags = (category, flag) => ({ categories: [...keep, category], flag: Boolean(flag) });
   const failTag = tags(C.held, true);
   const job = (fields) =>
@@ -168,7 +175,7 @@ for (let i = 0; i < items.length; i += 1) {
     continue;
   }
 
-  const parsed = parseClaude(items[i].json);
+  const parsed = parseClaude($('Ask Claude').itemMatching(i).json);
   // A passing API problem: hand the email back for the next run (about a minute
   // away) to try once more, instead of sending a holding reply straight away.
   if (parsed.retryable && !ctx.retried) {

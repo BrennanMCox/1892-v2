@@ -7,7 +7,7 @@ const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 // For $('Node').item and .itemMatching(i), item i of the current input is
 // paired with item i of that node, unless `pair` maps it elsewhere:
 // pair: { 'Node Name': [indexForInput0, indexForInput1, ...] }.
-export async function runCode(src, { input = [], nodes = {}, mode = 'all', pair = {} } = {}) {
+export async function runCode(src, { input = [], nodes = {}, mode = 'all', pair = {}, executionId = 'test-run' } = {}) {
   const wrap = (json) => ({ json });
   const nodeProxy = (index) => (name) => {
     if (!(name in nodes)) throw new Error(`test: no data for node "${name}"`);
@@ -30,19 +30,20 @@ export async function runCode(src, { input = [], nodes = {}, mode = 'all', pair 
 
   const logs = [];
   const console = { log: (...a) => logs.push(a.join(' ')) };
-  const fn = new AsyncFunction('$input', '$json', '$', 'console', src);
+  const $execution = { id: executionId };
+  const fn = new AsyncFunction('$input', '$json', '$', 'console', '$execution', src);
 
   if (mode === 'all') {
     const items = input.map(wrap);
     const $input = { all: () => items, first: () => items[0], last: () => items[items.length - 1] };
-    const out = await fn($input, undefined, nodeProxy(0), console);
+    const out = await fn($input, undefined, nodeProxy(0), console, $execution);
     return { out: normalize(out), logs };
   }
 
   const outs = [];
   for (let i = 0; i < input.length; i += 1) {
     const $input = { item: wrap(input[i]) };
-    const out = await fn($input, input[i], nodeProxy(i), console);
+    const out = await fn($input, input[i], nodeProxy(i), console, $execution);
     outs.push(...normalize(out));
   }
   return { out: outs, logs };

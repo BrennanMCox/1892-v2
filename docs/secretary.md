@@ -40,7 +40,7 @@ Claude may only state facts written in `n8n/knowledge/club.md`. If a reply would
 - **Claude declines or returns something unusable:** the fixed holding reply goes out and the email is held for Joel.
 - **Creating, saving or sending a reply fails:** that email is flagged and tagged "Secretary: Needs Joel". The other emails in the run carry on.
 - **A run dies part way:** the email stays tagged "Working". After 8 minutes (`stuckAfterMinutes`) a later run takes it over. If it finds a reply already went out, or can't read the thread to check, it doesn't reply again; it flags the email for Joel. If the second attempt dies too, the email is flagged for Joel without another try.
-- **The 15 minutes:** a new email is picked up within a minute and normally answered within two or three. Only one run starts per minute, so two runs never pick up the same email.
+- **The 15 minutes:** a new email is picked up within a minute and normally answered within two or three. Only one run starts per minute, and each run tags the emails it claims. If runs ever overlap (a slow Microsoft 365 or a queued n8n), each one checks its claim again just before replying, and only the run that still holds it goes ahead.
 
 ## Going live, safely
 
@@ -57,7 +57,7 @@ Claude may only state facts written in `n8n/knowledge/club.md`. If a reply would
 | `mailboxAddress` | The mailbox's own address, so it never answers itself. |
 | `processReceivedAfter` | Ignore mail received before this time (ISO 8601, UTC). |
 | `maxAgeHours` | Never answer mail older than this. |
-| `maxPerRun` | At most this many emails go to Claude per run; the rest wait a minute. Automated mail doesn't count. |
+| `maxPerRun` | At most this many emails go to Claude per run; the rest wait a minute. Automated mail doesn't count. Outlook calls are made one a second, so keep this small. |
 | `stuckAfterMinutes` | Take over an email still tagged "Working" after this long. Keep it above 7 (the run time limit). |
 | `pollMinutes` | How often it checks the Inbox. 1 meets the 15-minute goal comfortably. |
 | `model`, `effort`, `maxTokens` | The Claude model and how hard it thinks. |

@@ -50,11 +50,13 @@ function automatedReason(m, from) {
   return '';
 }
 
-const page = $input.first().json;
-const messages = (page.value || []).slice();
-if (page['@odata.nextLink']) {
-  console.log('Select Messages: the Inbox has more recent mail than one page; the oldest is left for later runs.');
+// List Inbox follows Graph's paging, so there may be several pages (items).
+const pages = $input.all().map((i) => i.json);
+const messages = pages.flatMap((p) => p.value || []);
+if (pages.length && pages[pages.length - 1]['@odata.nextLink']) {
+  console.log('Select Messages: more mail in the window than the page limit; the oldest is left for later runs.');
 }
+const isOurs = (c) => c === C.processing || c === C.retry || String(c).startsWith(C.claimPrefix);
 messages.sort((a, b) => Date.parse(a.receivedDateTime) - Date.parse(b.receivedDateTime));
 
 const out = [];
@@ -69,7 +71,7 @@ for (const m of messages) {
   if (cats.some((c) => FINAL.includes(c))) continue;
 
   const retried = cats.includes(C.retry);
-  const keep = cats.filter((c) => c !== C.processing && c !== C.retry);
+  const keep = cats.filter((c) => !isOurs(c));
   let recovery = false;
   if (cats.includes(C.processing)) {
     // Another run is (or was) working on it. Take it over only once that run
@@ -109,7 +111,7 @@ for (const m of messages) {
   if (route === 'skip') tagNow = { categories: [...keep, C.skipped], flag: false };
   if (route === 'giveup') tagNow = { categories: [...keep, C.held], flag: true };
   // A recovery attempt is marked "retry", so if it dies too we give up next time.
-  const working = [...keep, C.processing, ...(recovery || retried ? [C.retry] : [])];
+  const working = [...keep, C.processing, ...(recovery || retried ? [C.retry] : []), cfg.claim];
 
   out.push({
     json: {

@@ -7,8 +7,10 @@
 // Drafts for Joel. Finally it tags the email so it is never answered twice.
 // Any step that fails for an email flags that email for Joel.
 //
-// One schedule trigger, on purpose: runs start a minute apart, so two runs
-// never pick up the same email (the "working" tag lands within seconds).
+// One schedule trigger, on purpose: runs start a minute apart, so normally the
+// "working" tag lands long before the next run looks. For the rare overlap
+// (slow Graph, queued runs) each run tags its claim and re-checks it right
+// before acting; only the run whose claim is still there carries on.
 //
 // The node logic lives in ./code/*.js so it can be read and tested on its own.
 
@@ -34,7 +36,8 @@ export function build({ code, readJson, readText }) {
 
   const at = (col, row) => [col * 240, row * 200];
 
-  // Outlook allows 4 requests at a time per mailbox; send at most 2 per node.
+  // Outlook allows 4 requests at a time per mailbox. n8n's batching only spaces
+  // out request starts, so start one a second (calls normally take well under).
   // Retries repeat the whole node for every item, so steps that create or send
   // something never retry: they hand failures to "Tag Failed" instead.
   const graph = (name, position, method, urlExpr, extra = {}) => ({
@@ -48,10 +51,10 @@ export function build({ code, readJson, readText }) {
       authentication: 'predefinedCredentialType',
       nodeCredentialType: OUTLOOK,
       ...extra.parameters,
-      options: { timeout: 30000, batching: { batch: { batchSize: 2, batchInterval: 250 } }, ...(extra.options || {}) },
+      options: { timeout: 20000, batching: { batch: { batchSize: 1, batchInterval: 1000 } }, ...(extra.options || {}) },
     },
     credentials: { [OUTLOOK]: null },
-    ...(extra.noRetry ? { retryOnFail: false } : { retryOnFail: true, maxTries: 3, waitBetweenTries: 3000 }),
+    ...(extra.noRetry ? { retryOnFail: false } : { retryOnFail: true, maxTries: 2, waitBetweenTries: 3000 }),
     ...(extra.onError ? { onError: extra.onError } : {}),
   });
 
@@ -108,20 +111,19 @@ export function build({ code, readJson, readText }) {
       },
     },
     codeNode('Config', at(1, 0.5), 'config.js', 'all', { CONFIG: config }),
-    graph('List Inbox', at(2, 0.5), 'GET', `{{ ${GRAPH} }}/mailFolders/inbox/messages`, {
-      parameters: {
-        sendQuery: true,
-        queryParameters: {
-          parameters: [
-            { name: '$filter', value: `=receivedDateTime ge {{ ${CFG}.since }}` },
-            { name: '$orderby', value: 'receivedDateTime desc' },
-            { name: '$top', value: '100' },
-            {
-              name: '$select',
-              value:
-                'id,conversationId,subject,from,sender,replyTo,toRecipients,ccRecipients,receivedDateTime,lastModifiedDateTime,categories,isDraft,webLink,body,bodyPreview,internetMessageHeaders',
-            },
-          ],
+    graph('List Inbox', at(2, 0.5), 'GET', `{{ ${CFG}.listUrl }}`, {
+      options: {
+        batching: { batch: { batchSize: 1, batchInterval: 0 } },
+        pagination: {
+          pagination: {
+            paginationMode: 'responseContainsNextURL',
+            nextURL: '={{ $response.body["@odata.nextLink"] }}',
+            paginationCompleteWhen: 'other',
+            completeExpression: '={{ !$response.body["@odata.nextLink"] }}',
+            limitPagesFetched: true,
+            maxRequests: 10,
+            requestInterval: 200,
+          },
         },
       },
     }),
@@ -180,6 +182,10 @@ export function build({ code, readJson, readText }) {
       retryOnFail: false,
       onError: 'continueRegularOutput',
     },
+    graph('Check Claim', at(8.5, 1), 'GET', `{{ ${GRAPH} }}/messages/{{ $('Build Claude Request').item.json.id }}`, {
+      parameters: { sendQuery: true, queryParameters: { parameters: [{ name: '$select', value: 'id,categories' }] } },
+      onError: 'continueRegularOutput',
+    }),
     codeNode('Decide', at(9, 0), 'decide.js', 'all'),
     ifNode('Reply Job?', at(10, 0), '$json.kind', 'equals', 'reply'),
     ifNode('Notice Job?', at(11, 1.5), '$json.kind', 'equals', 'notify'),
@@ -228,7 +234,8 @@ export function build({ code, readJson, readText }) {
     'Tag Working': main(['Get Thread']),
     'Get Thread': main(['Build Claude Request']),
     'Build Claude Request': main(['Ask Claude']),
-    'Ask Claude': main(['Decide']),
+    'Ask Claude': main(['Check Claim']),
+    'Check Claim': main(['Decide']),
     Decide: main(['Reply Job?']),
     'Reply Job?': main(['Create Reply'], ['Notice Job?']),
     'Notice Job?': main(['Send Notice'], ['Tag Done']),

@@ -53,6 +53,22 @@ describe('Select Messages', () => {
     assert.ok(out.every((o) => o.json.route === 'answer'));
   });
 
+  test('reads every page List Inbox fetched', async () => {
+    const cfg = await config({ processReceivedAfter: '2020-01-01T00:00:00Z' });
+    const pages = [{ value: [person({ id: 'p1' })], '@odata.nextLink': 'https://graph/next' }, { value: [person({ id: 'p2', receivedDateTime: minsAgo(3) })] }];
+    const { out } = await runCode(js('Select Messages'), { input: pages, nodes: { Config: [cfg] } });
+    assert.deepEqual(out.map((o) => o.json.id), ['p2', 'p1']);
+  });
+
+  test('Config puts the whole Inbox query in the URL, and names this run\'s claim', async () => {
+    const cfg = await config();
+    const u = new URL(cfg.listUrl);
+    assert.equal(u.pathname, '/v1.0/me/mailFolders/inbox/messages');
+    assert.match(u.searchParams.get('$filter'), /^receivedDateTime ge \d{4}-\d\d-\d\dT/);
+    assert.match(u.searchParams.get('$select'), /internetMessageHeaders/);
+    assert.equal(cfg.claim, `${baseCfg.categories.claimPrefix}test-run`);
+  });
+
   test('ignores mail received before processReceivedAfter', async () => {
     const cfg = await config({ processReceivedAfter: minsAgo(3) });
     const { out } = await runCode(js('Select Messages'), {
@@ -114,7 +130,7 @@ describe('Select Messages', () => {
     ];
     const { out } = await runCode(js('Select Messages'), { input: [{ value: msgs }], nodes: { Config: [cfg] } });
     const byId = Object.fromEntries(out.map((o) => [o.json.id, o.json]));
-    assert.deepEqual(byId.once.working, ['Blue', C.processing, C.retry]);
+    assert.deepEqual(byId.once.working, ['Blue', C.processing, C.retry, cfg.claim]);
     assert.equal(byId.twice.route, 'giveup');
     assert.deepEqual(byId.twice.tagNow, { categories: [C.held], flag: true });
   });
@@ -200,11 +216,20 @@ describe('Decide', () => {
     reply_html: '<p>Dear Sarah,</p><p>Yes, we serve dinner on Friday.</p><p>With best regards,<br>The Office of the Secretary</p>',
     holding_reply_html: '', missing_facts: [], risk_flags: [], summary_for_joel: 'Asked about Friday dinner.',
   };
-  const run = async (responses, ctxs, cfgOver = {}) => {
+  // claims: what Check Claim read back for each email (default: still ours).
+  const run = async (responses, ctxs, cfgOver = {}, claims) => {
     const cfg = await config(cfgOver);
-    const { out } = await runCode(js('Decide'), { input: responses, nodes: { Config: [cfg], 'Build Claude Request': ctxs } });
+    const input = claims || ctxs.map(() => ({ id: 'x', categories: ['Blue', C.processing, cfg.claim] }));
+    const { out } = await runCode(js('Decide'), { input, nodes: { Config: [cfg], 'Build Claude Request': ctxs, 'Ask Claude': responses } });
     return out.map((o) => o.json);
   };
+
+  test('does nothing for an email another run has claimed since, or whose claim can\'t be read', async () => {
+    const lost = await run([claude(good)], [ctx()], { mode: 'live' }, [{ categories: ['Blue', C.processing, `${C.claimPrefix}other-run`] }]);
+    assert.deepEqual(lost, []);
+    const unknown = await run([claude(good)], [ctx()], { mode: 'live' }, [{ error: { message: 'timeout' } }]);
+    assert.deepEqual(unknown, []);
+  });
 
   test('live: a safe reply is sent and the email tagged replied', async () => {
     const jobs = await run([claude(good)], [ctx()], { mode: 'live' });
@@ -397,6 +422,17 @@ describe('workflow shape', () => {
     for (const name of ['Create Reply', 'Save Draft', 'Send Reply']) {
       assert.equal(node(name).onError, 'continueErrorOutput', name);
       assert.equal(workflow.connections[name].main[1][0].node, 'Tag Failed', name);
+    }
+  });
+
+  test('the claim is re-checked between asking Claude and acting', () => {
+    assert.equal(workflow.connections['Ask Claude'].main[0][0].node, 'Check Claim');
+    assert.equal(workflow.connections['Check Claim'].main[0][0].node, 'Decide');
+  });
+
+  test('Graph calls start one at a time', () => {
+    for (const n of workflow.nodes.filter((x) => x.parameters.nodeCredentialType === 'microsoftOutlookOAuth2Api')) {
+      assert.equal(n.parameters.options.batching.batch.batchSize, 1, n.name);
     }
   });
 
