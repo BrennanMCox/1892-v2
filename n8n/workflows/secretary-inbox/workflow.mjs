@@ -200,8 +200,7 @@ export function build({ code, readJson, readText }) {
     }),
     ifNode('Send Now?', at(14, 0), "$('Decide').item.json.send", 'true'),
     graph('Send Reply', at(15, -0.5), 'POST', `{{ ${GRAPH} }}/messages/{{ $('Fill Draft').item.json.draftId }}/send`, {
-      // Graph wants a Content-Length on send; an empty JSON object provides one.
-      parameters: { sendBody: true, specifyBody: 'json', jsonBody: '{}' },
+      // No body, as n8n's own Outlook node does for drafts/send.
       maxTries: 1,
     }),
     ifNode('Last Job?', at(16, 0), "!!$('Decide').item.json.finalize", 'true'),
