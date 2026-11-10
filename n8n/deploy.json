@@ -1,0 +1,11 @@
+{
+  "$comment": "How GitHub deploys to n8n. project: the n8n project every workflow goes into. workflows.<key>.active: publish (turn on) the workflow after deploying it. credentials: the n8n credential each type uses, found by name (or set id once you know it). See docs/n8n-deploy.md.",
+  "project": "1892",
+  "workflows": {
+    "secretary-inbox": { "active": false }
+  },
+  "credentials": {
+    "microsoftOutlookOAuth2Api": { "name": "1892 Secretary Outlook", "id": "" },
+    "anthropicApi": { "name": "1892 Anthropic", "id": "" }
+  }
+}

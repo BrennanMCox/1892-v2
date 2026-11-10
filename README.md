@@ -1,0 +1,31 @@
+# 1892
+
+Automations for the 1892 Club, built as [n8n](https://n8n.io) workflows. GitHub is the source of truth: every push to the default branch deploys them to the **1892** project in n8n.
+
+| Workflow | What it does |
+|---|---|
+| [Secretary Inbox](docs/secretary.md) | Answers email to secretary@1892club.com within 15 minutes. Routine questions get a full reply; anything sensitive gets a holding reply plus a draft for Joel. |
+
+## Layout
+
+```
+n8n/
+  deploy.json               which n8n project, which workflows are on, credential names
+  config/secretary.json     Secretary Inbox settings (shadow/live, limits, rules)
+  prompts/                  what Claude is told
+  knowledge/club.md         the only facts Claude may state in a reply. Add to it.
+  workflows/<key>/          one folder per workflow: workflow.mjs + code/*.js
+scripts/                    build and deploy (plain Node.js, no dependencies)
+test/                       tests for the workflow logic and the deploy
+.github/workflows/          the GitHub Action that deploys
+docs/                       setup and how-it-works guides
+```
+
+## Start here
+
+1. [Set up the GitHub → n8n deploy](docs/n8n-deploy.md) (once).
+2. [Go live with the Secretary Inbox](docs/secretary.md#going-live-safely).
+
+```bash
+npm test
+```

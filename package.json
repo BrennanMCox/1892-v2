@@ -1,0 +1,13 @@
+{
+  "name": "1892-n8n",
+  "private": true,
+  "description": "n8n workflows for the 1892 Club, deployed from GitHub.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "deploy": "node scripts/deploy.mjs",
+    "deploy:dry-run": "node scripts/deploy.mjs --dry-run"
+  }
+}

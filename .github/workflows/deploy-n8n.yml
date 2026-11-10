@@ -1,0 +1,73 @@
+name: Deploy to n8n
+
+# Every push checks the workflows. A push to the repository's default branch
+# also deploys them to n8n, into the project named in n8n/deploy.json.
+# Setup (once): docs/n8n-deploy.md.
+
+on:
+  push:
+    paths:
+      - 'n8n/**'
+      - 'scripts/**'
+      - 'test/**'
+      - 'package.json'
+      - '.github/workflows/deploy-n8n.yml'
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only show what would change in n8n'
+        type: boolean
+        default: false
+
+concurrency:
+  group: n8n-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and validate the workflows
+        run: node scripts/build.mjs
+      - name: Test the workflow logic
+        run: node --test 'test/**/*.test.mjs'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: n8n-workflows
+          path: dist/*.json
+
+  deploy:
+    needs: check
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    environment: n8n
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check the n8n secrets are set
+        env:
+          N8N_BASE_URL: ${{ secrets.N8N_BASE_URL }}
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+        run: |
+          if [ -z "$N8N_BASE_URL" ] || [ -z "$N8N_API_KEY" ]; then
+            echo "::error::Add the N8N_BASE_URL and N8N_API_KEY secrets (Settings > Environments > n8n). See docs/n8n-deploy.md."
+            exit 1
+          fi
+      - name: Deploy
+        env:
+          N8N_BASE_URL: ${{ secrets.N8N_BASE_URL }}
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+          N8N_PROJECT_ID: ${{ secrets.N8N_PROJECT_ID }}
+        run: node scripts/deploy.mjs ${{ inputs.dry_run && '--dry-run' || '' }}

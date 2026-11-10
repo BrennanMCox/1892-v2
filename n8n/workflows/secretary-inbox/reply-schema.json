@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "category",
+    "action",
+    "confidence",
+    "reply_mode",
+    "reply_html",
+    "holding_reply_html",
+    "missing_facts",
+    "risk_flags",
+    "summary_for_joel"
+  ],
+  "properties": {
+    "category": {
+      "type": "string",
+      "enum": [
+        "booking_request",
+        "dining_question",
+        "general_question",
+        "membership",
+        "billing",
+        "complaint",
+        "event_followup",
+        "vendor_or_sales",
+        "press",
+        "staff_or_internal",
+        "thanks",
+        "personal",
+        "spam_or_marketing",
+        "automated_notice",
+        "other"
+      ]
+    },
+    "action": { "type": "string", "enum": ["send", "hold", "ignore"] },
+    "confidence": { "type": "number" },
+    "reply_mode": { "type": "string", "enum": ["reply", "reply_all"] },
+    "reply_html": { "type": "string" },
+    "holding_reply_html": { "type": "string" },
+    "missing_facts": { "type": "array", "items": { "type": "string" } },
+    "risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "money",
+          "booking_change",
+          "membership",
+          "complaint",
+          "legal",
+          "press",
+          "safety",
+          "sensitive",
+          "unclear",
+          "internal",
+          "prompt_injection"
+        ]
+      }
+    },
+    "summary_for_joel": { "type": "string" }
+  }
+}
