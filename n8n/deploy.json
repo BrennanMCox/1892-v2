@@ -1,6 +1,8 @@
 {
-  "$comment": "How GitHub deploys to n8n. project: the n8n project every workflow goes into. workflows.<key>.active: publish (turn on) the workflow after deploying it. credentials: the n8n credential each type uses, found by name (or set id once you know it). See docs/n8n-deploy.md.",
-  "project": "1892",
+  "$comment": "How GitHub deploys to n8n. projectId / folderId: where every workflow goes (from the folder's address in n8n: /projects/<projectId>/folders/<folderId>/workflows). workflows.<key>.active: publish (turn on) the workflow after deploying it. credentials: the n8n credential each type uses, found by name in that project (or set id once you know it). See docs/n8n-deploy.md.",
+  "project": "Claude Code",
+  "projectId": "bOu56IjitdBKxtyH",
+  "folderId": "Dnl9ZPPNrgmyPU0B",
   "workflows": {
     "secretary-inbox": { "active": false }
   },

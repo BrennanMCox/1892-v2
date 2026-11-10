@@ -146,6 +146,24 @@ async function loadCredentials(client, log) {
 export async function deployAll(built, { client, deployConfig, dryRun = false, repoUrl = '', log = console.log }) {
   const project = await findProject(client, deployConfig, log);
   log(project ? `n8n project: "${project.name}" (${project.id})` : 'n8n project: none (personal space)');
+  const folderId = deployConfig.folderId || null;
+  if (folderId) log(`n8n folder: ${deployConfig.folder ? `"${deployConfig.folder}" ` : ''}(${folderId})`);
+
+  // Save, putting the workflow in the folder. n8n before 2.20 can't take a
+  // folder through the API: save without it and say so.
+  const withFolder = async (save, body) => {
+    if (!folderId) return save(body);
+    try {
+      return await save({ ...body, parentFolderId: folderId });
+    } catch (err) {
+      if (err.status === 404 && /folder/i.test(err.message)) {
+        throw new Error(`n8n folder ${folderId} was not found in the project. Check folderId in n8n/deploy.json.`);
+      }
+      if (err.status !== 400 || !/parentFolderId|additional propert/i.test(err.message)) throw err;
+      log('  note: this n8n version cannot place workflows in folders through its API; saved at the project top level. Move it into the folder by hand once.');
+      return save(body);
+    }
+  };
 
   const credentialsByName = await loadCredentials(client, log);
   const all = await client.listWorkflows(project ? { projectId: project.id } : {});
@@ -174,12 +192,12 @@ export async function deployAll(built, { client, deployConfig, dryRun = false, r
 
     let saved;
     if (existing) {
-      saved = await client.updateWorkflow(existing.id, body);
+      saved = await withFolder((b) => client.updateWorkflow(existing.id, b), body);
       log(`  updated workflow ${existing.id}`);
     } else {
       if (project) {
         try {
-          saved = await client.createWorkflow({ ...body, projectId: project.id });
+          saved = await withFolder((b) => client.createWorkflow(b), { ...body, projectId: project.id });
         } catch (err) {
           if (err.status !== 400 || !/projectId|additional propert/i.test(err.message)) throw err;
           // n8n before 2.17 can't create straight into a project: create, then move.
@@ -188,7 +206,7 @@ export async function deployAll(built, { client, deployConfig, dryRun = false, r
           saved = await client.getWorkflow(saved.id);
         }
       } else {
-        saved = await client.createWorkflow(body);
+        saved = await withFolder((b) => client.createWorkflow(b), body);
       }
       log(`  created workflow ${saved.id}`);
     }

@@ -1,6 +1,6 @@
 # 1892
 
-Automations for the 1892 Club, built as [n8n](https://n8n.io) workflows. GitHub is the source of truth: every push to the default branch deploys them to the **1892** project in n8n.
+Automations for the 1892 Club, built as [n8n](https://n8n.io) workflows. GitHub is the source of truth: every push to the default branch deploys them to n8n, into a folder of the **Claude Code** project (set in `n8n/deploy.json`).
 
 | Workflow | What it does |
 |---|---|
@@ -10,7 +10,7 @@ Automations for the 1892 Club, built as [n8n](https://n8n.io) workflows. GitHub 
 
 ```
 n8n/
-  deploy.json               which n8n project, which workflows are on, credential names
+  deploy.json               which n8n project and folder, which workflows are on, credential names
   config/secretary.json     Secretary Inbox settings (shadow/live, limits, rules)
   prompts/                  what Claude is told
   knowledge/club.md         the only facts Claude may state in a reply. Add to it.

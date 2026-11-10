@@ -7,7 +7,7 @@ import { N8nClient } from '../scripts/lib/n8n-client.mjs';
 const built = await buildAll();
 
 // A tiny in-memory n8n public API.
-function fakeN8n({ projectsForbidden = false, projects = [{ id: 'p1', name: '1892' }], credentials = [], workflows = [], v1 = false, noCredList = false, noProjectIdOnCreate = false } = {}) {
+function fakeN8n({ noFolders = false, projectsForbidden = false, projects = [{ id: 'p1', name: '1892' }], credentials = [], workflows = [], v1 = false, noCredList = false, noProjectIdOnCreate = false } = {}) {
   const state = { workflows: structuredClone(workflows), calls: [] };
   let seq = 100;
   const json = (status, body) => ({ ok: status < 400, status, text: async () => (body === undefined ? '' : JSON.stringify(body)) });
@@ -29,13 +29,16 @@ function fakeN8n({ projectsForbidden = false, projects = [{ id: 'p1', name: '189
     let m = path.match(/^\/workflows\/([^/]+)$/);
     if (m && method === 'GET') return json(200, state.workflows.find((w) => w.id === m[1]));
     if (m && method === 'PUT') {
+      if (body.parentFolderId && noFolders) return json(400, { message: "request/body must NOT have additional properties 'parentFolderId'" });
+      for (const k of Object.keys(body)) assert.ok(['name', 'nodes', 'connections', 'settings', 'parentFolderId'].includes(k), `unexpected PUT key ${k}`);
       const w = state.workflows.find((x) => x.id === m[1]);
       Object.assign(w, body);
       return json(200, w);
     }
     if (method === 'POST' && path === '/workflows') {
       if (body.projectId && noProjectIdOnCreate) return json(400, { message: 'request/body must NOT have additional properties' });
-      for (const k of Object.keys(body)) assert.ok(['name', 'nodes', 'connections', 'settings', 'projectId'].includes(k), `unexpected body key ${k}`);
+      if (body.parentFolderId && noFolders) return json(400, { message: "request/body must NOT have additional properties 'parentFolderId'" });
+      for (const k of Object.keys(body)) assert.ok(['name', 'nodes', 'connections', 'settings', 'projectId', 'parentFolderId'].includes(k), `unexpected body key ${k}`);
       const w = { id: `w${(seq += 1)}`, active: false, projectId: body.projectId, ...body };
       state.workflows.push(w);
       return json(200, w);
@@ -163,6 +166,27 @@ describe('deploy', () => {
   test('a missing project is a clear error', async () => {
     const n8n = fakeN8n({ projects: [{ id: 'p0', name: 'Personal' }] });
     await assert.rejects(deployAll(built, { client: n8n.client, deployConfig: cfg(), log: quiet }), /No n8n project named "1892"/);
+  });
+
+  test('deploys into the folder from n8n/deploy.json, and moves an existing workflow there', async () => {
+    const n8n = fakeN8n({ projectsForbidden: true, workflows: [{ id: 'w1', name: 'Secretary Inbox', active: false, projectId: 'pC', parentFolderId: null, nodes: [] }] });
+    const config = cfg({ project: 'Claude Code', projectId: 'pC', folderId: 'fD' });
+    await deployAll(built, { client: n8n.client, deployConfig: config, log: quiet });
+    assert.equal(n8n.state.workflows.length, 1);
+    assert.equal(n8n.state.workflows[0].parentFolderId, 'fD');
+    const fresh = fakeN8n({ projectsForbidden: true });
+    await deployAll(built, { client: fresh.client, deployConfig: config, log: quiet });
+    assert.equal(fresh.state.workflows[0].projectId, 'pC');
+    assert.equal(fresh.state.workflows[0].parentFolderId, 'fD');
+  });
+
+  test('n8n without folder support in its API: saves at the project top level and says so', async () => {
+    const n8n = fakeN8n({ noFolders: true });
+    const logs = [];
+    await deployAll(built, { client: n8n.client, deployConfig: cfg({ projectId: 'p1', folderId: 'fD' }), log: (l) => logs.push(l) });
+    assert.equal(n8n.state.workflows.length, 1);
+    assert.equal(n8n.state.workflows[0].parentFolderId, undefined);
+    assert.match(logs.join('\n'), /Move it into the folder by hand/);
   });
 
   test('dry run changes nothing', async () => {
