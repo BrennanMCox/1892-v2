@@ -10,7 +10,7 @@ The deploy also puts **Secretary Inbox Export** in the n8n folder. Open it and c
 
 ### Or from Outlook
 
-Export the secretary@ **Inbox** and **Sent Items** for the period you want (2–3 months is plenty) as `.eml` files, or as `.mbox`. Sent Items lets the report show Joel's real reply, and how long it took, next to each email.
+Export the secretary@ **Inbox** and **Sent Items** for the period you want (2–3 months is plenty) as `.eml` files, or as `.mbox`. Sent Items lets the report show the real reply from secretary@, and how long it took, next to each email.
 
 - **Outlook for Mac:** select the emails (Cmd+A for all), drag them onto a folder in Finder.
 - **Outlook on the web:** open an email, **⋯ → Download**. One at a time.
@@ -38,8 +38,8 @@ node scripts/replay.mjs path/to/exported-folder --limit 20
 
 Open `replay-out/report.html`. For each email it shows:
 
-- what the workflow would do (send, hold for Joel, or no reply), and why;
-- the reply it would send, and the draft it would leave for Joel;
-- what Joel actually did, and how long it took.
+- what the workflow would do (send, hold for review, or no reply), and why;
+- the reply it would send, and the draft it would leave for review;
+- what secretary@ actually replied, and how long it took.
 
 Use it to tune `n8n/knowledge/club.md` (missing facts are the usual reason for a hold), `n8n/prompts/secretary-system.md` and the rules in `n8n/config/secretary.json`, then run it again.

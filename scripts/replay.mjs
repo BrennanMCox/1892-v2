@@ -136,7 +136,7 @@ async function worker() {
         result.outcome = !last ? 'nothing' : last.finalize?.categories?.includes(cfg.categories.replied) ? 'send' : last.finalize?.categories?.includes(cfg.categories.skipped) ? 'no reply' : 'hold';
         result.why = (jobs.find((j) => j.log)?.log?.why) || [];
         result.sent = jobs.filter((j) => j.kind === 'reply' && j.send).map((j) => j.html);
-        result.draftForJoel = jobs.filter((j) => j.kind === 'reply' && !j.send).map((j) => j.html);
+        result.draftForReview = jobs.filter((j) => j.kind === 'reply' && !j.send).map((j) => j.html);
       }
     }
     results.push(result);
@@ -155,8 +155,8 @@ const summary = {
   byRoute: count((r) => r.route),
   byOutcome: useClaude ? count((r) => r.outcome || '(skipped before Claude)') : null,
   byCategory: useClaude ? count((r) => r.claude?.category || '(none)') : null,
-  answeredByJoel: results.filter((r) => r.actualReply).length,
-  joelMedianMinutes: (() => {
+  answeredFromMailbox: results.filter((r) => r.actualReply).length,
+  mailboxMedianMinutes: (() => {
     const v = results.filter((r) => r.actualReply).map((r) => r.actualReply.minutes).sort((a, b) => a - b);
     return v.length ? v[Math.floor(v.length / 2)] : null;
   })(),

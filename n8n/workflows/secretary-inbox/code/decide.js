@@ -4,7 +4,7 @@
 // Output: the jobs to run for each email, in order:
 //   kind "reply":    create a reply draft with `html`; send it now if `send`.
 //   kind "notify":   email a held-message notice to cfg.notifyOnHold.
-//   kind "finalize": set the email's categories (and flag it for Joel if `flag`).
+//   kind "finalize": set the email's categories (and flag it for review if `flag`).
 // The last job of each email is always "finalize", or a "reply" with
 // `finalize` set, so an email is only tagged done after its replies went out.
 // Every job carries `failTag`: what "Tag Failed" sets if a step errors.
@@ -31,7 +31,7 @@ function templateHolding(ctx) {
   const name = firstName(ctx);
   return (
     `<p>${name ? `Dear ${esc(name)},` : 'Good day,'}</p>` +
-    '<p>Thank you for writing to the 1892 Club. We have your message, and Joel Guerrero-Sparks, our Club Secretary, will follow up with you personally.</p>' +
+    '<p>Thank you for writing to the 1892 Club. We have your message, and a member of the Club team will follow up with you personally.</p>' +
     SIGN_OFF
   );
 }
@@ -99,7 +99,7 @@ function plan(ctx, parsed) {
   const why = [];
   const flags = d.risk_flags || [];
   const missing = d.missing_facts || [];
-  const base = { replyAll: allowReplyAll && d.reply_mode === 'reply_all', summary: d.summary_for_joel || '', category: d.category, internal };
+  const base = { replyAll: allowReplyAll && d.reply_mode === 'reply_all', summary: d.summary_for_staff || '', category: d.category, internal };
 
   if (d.action === 'ignore') {
     if (STAY_SILENT.includes(d.category) || d.confidence >= 0.8) {
@@ -178,7 +178,7 @@ for (let i = 0; i < items.length; i += 1) {
   const parsed = parseClaude($('Ask Claude').itemMatching(i).json);
   // A passing API problem: hand the email back to the next run to try once
   // more, but only if that run is early enough to still meet the reply goal.
-  // Otherwise send the fixed holding reply now and hold it for Joel.
+  // Otherwise send the fixed holding reply now and hold it for review.
   const deadline = Date.parse(ctx.receivedDateTime) + cfg.replyWithinMinutes * 60000;
   const nextRunDone = Date.parse(cfg.nextPollAt) + 5 * 60000;
   if (parsed.retryable && !ctx.retried && nextRunDone <= deadline) {
@@ -206,14 +206,14 @@ for (let i = 0; i < items.length; i += 1) {
     continue;
   }
 
-  // Hold: save Claude's full draft for Joel, and (except for internal mail)
+  // Hold: save Claude's full draft for review, and (except for internal mail)
   // send a short holding reply now.
   const reasons = p.why.join('; ');
   if (p.full) {
     job({
       kind: 'reply',
       replyAll: p.replyAll,
-      html: `<p style="color:#b00"><b>[Secretary draft for Joel. Held because: ${esc(reasons)}. Please check, edit and send.]</b></p>` + p.full,
+      html: `<p style="color:#b00"><b>[Secretary draft for review. Held because: ${esc(reasons)}. Please check, edit and send.]</b></p>` + p.full,
       send: false,
       finalize: null,
       log,
@@ -223,7 +223,7 @@ for (let i = 0; i < items.length; i += 1) {
     job({
       kind: 'notify',
       to: cfg.notifyOnHold,
-      noticeSubject: `Held for Joel: ${ctx.subject || '(no subject)'}`,
+      noticeSubject: `Held for review: ${ctx.subject || '(no subject)'}`,
       noticeHtml:
         `<p><b>From:</b> ${esc(ctx.fromName)} &lt;${esc(ctx.from)}&gt;<br><b>Subject:</b> ${esc(ctx.subject)}</p>` +
         `<p>${esc(p.summary)}</p><p><b>Why it was held:</b> ${esc(reasons)}</p>` +
@@ -232,14 +232,14 @@ for (let i = 0; i < items.length; i += 1) {
     });
   }
   if (p.internal) {
-    // Staff and internal handoffs: no "Joel will follow up" note to Joel's own colleagues.
+    // Staff and internal handoffs: no "we will follow up" note to the Club's own people.
     job({ kind: 'finalize', finalize: tags(live ? C.held : C.shadow, live), log });
     continue;
   }
   job({
     kind: 'reply',
     replyAll: Boolean(p.holdingReplyAll),
-    html: live ? p.holding : shadowNote(`would HOLD for Joel (${reasons}) and send this holding reply`) + p.holding,
+    html: live ? p.holding : shadowNote(`would HOLD for review (${reasons}) and send this holding reply`) + p.holding,
     send: live,
     finalize: tags(live ? C.held : C.shadow, live),
     log,

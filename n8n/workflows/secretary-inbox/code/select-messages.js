@@ -5,7 +5,7 @@
 //             the category list Tag Working sets.
 //   "skip":   automated or our own mail; tag it (`tagNow`) so it is never
 //             looked at again.
-//   "giveup": two runs in a row died on this email; flag it for Joel (`tagNow`)
+//   "giveup": two runs in a row died on this email; flag it for review (`tagNow`)
 //             without trying again.
 
 const cfg = $('Config').first().json;

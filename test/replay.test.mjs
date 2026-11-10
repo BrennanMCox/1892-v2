@@ -33,7 +33,7 @@ test('parses address lists with quoted commas', () => {
   assert.deepEqual(parseAddresses('"Fox, Ann" <ann@x.com>, bob@y.com').map((a) => a.emailAddress.address), ['ann@x.com', 'bob@y.com']);
 });
 
-test('replay without Claude sorts the emails and finds Joel\'s real reply', () => {
+test('replay without Claude sorts the emails and finds the real reply', () => {
   const out = mkdtempSync(join(tmpdir(), 'replay-'));
   execFileSync(process.execPath, ['scripts/replay.mjs', DIR, '--out', out, '--no-claude'], { cwd: ROOT, stdio: 'pipe' });
   const results = JSON.parse(readFileSync(join(out, 'results.json'), 'utf8'));

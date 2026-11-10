@@ -5,8 +5,8 @@
 // anything already tagged or machine-sent, tags the rest "working", asks Claude
 // to classify and draft a reply, applies hard safety rules, then either sends
 // the reply, or sends a short holding reply and leaves Claude's full draft in
-// Drafts for Joel. Finally it tags the email so it is never answered twice.
-// Any step that fails for an email flags that email for Joel.
+// Drafts for review. Finally it tags the email so it is never answered twice.
+// Any step that fails for an email flags that email for review.
 //
 // One schedule trigger, on purpose: runs start minutes apart, so normally the
 // "working" tag lands long before the next run looks. For the rare overlap

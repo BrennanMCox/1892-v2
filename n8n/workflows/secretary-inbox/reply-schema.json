@@ -10,7 +10,7 @@
     "holding_reply_html",
     "missing_facts",
     "risk_flags",
-    "summary_for_joel"
+    "summary_for_staff"
   ],
   "properties": {
     "category": {
@@ -58,6 +58,6 @@
         ]
       }
     },
-    "summary_for_joel": { "type": "string" }
+    "summary_for_staff": { "type": "string" }
   }
 }

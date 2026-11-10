@@ -19,11 +19,11 @@ Each check ─> list the last 6 hours of Inbox mail
    └─> hard safety rules decide what actually happens:
          SEND    the reply goes out now, and the email is tagged "Secretary: Replied"
          HOLD    a short holding reply goes out now. Claude's full draft waits in
-                 Drafts for Joel. The email is flagged and tagged "Secretary: Needs Joel"
+                 Drafts for review. The email is flagged and tagged "Secretary: Needs Review"
          IGNORE  no reply; tagged "Secretary: No Reply Needed"
 ```
 
-Joel's to-do list is the flagged emails, plus the drafts that start with a red "Secretary draft for Joel" line.
+The Club team's to-do list is the flagged emails, plus the drafts that start with a red "Secretary draft for review" line.
 
 ### What it may send by itself
 
@@ -35,17 +35,17 @@ A reply goes out with no person reading it only if **all** of these hold. Otherw
 - The sender isn't Club staff (`staffDomains`) or on `alwaysHoldSenders`.
 - The reply carries the Office of the Secretary sign-off and is plain paragraphs: no links, web addresses, images, styling or other HTML.
 
-The holding reply goes out unread too, so it gets the same HTML checks. If Claude flagged any risk, or its holding reply fails a check, the workflow sends a fixed, plain holding reply instead. Mail from Club staff (`staffDomains`) and `alwaysHoldSenders` gets no holding reply at all; it's just flagged for Joel. A website-form email (one with a Reply-To address) is answered to the Reply-To person only, never reply-all.
+The holding reply goes out unread too, so it gets the same HTML checks. If Claude flagged any risk, or its holding reply fails a check, the workflow sends a fixed, plain holding reply instead. Mail from Club staff (`staffDomains`) and `alwaysHoldSenders` gets no holding reply at all; it's just flagged for review. A website-form email (one with a Reply-To address) is answered to the Reply-To person only, never reply-all.
 
-Claude may only state facts written in `n8n/knowledge/club.md`. If a reply would need anything else (hours, prices, rooms, policies), the email is held. So **the more facts Joel adds to that file, the more emails get answered fully and automatically.**
+Claude may only state facts written in `n8n/knowledge/club.md`. If a reply would need anything else (hours, prices, rooms, policies), the email is held. So **the more facts you add to that file, the more emails get answered fully and automatically.**
 
 ### When something goes wrong
 
-- **Claude has a passing error** (overloaded, timeout): if the next check is early enough to still meet the reply goal, the email is tagged "Secretary: Retrying" and that check tries once more. With checks every 12 minutes and an 18-minute goal, that's usually too late, so the fixed holding reply goes out right away and the email is held for Joel.
-- **Claude declines or returns something unusable:** the fixed holding reply goes out and the email is held for Joel.
-- **Creating, saving or sending a reply fails:** that email is flagged and tagged "Secretary: Needs Joel". The other emails in the run carry on.
-- **A run dies part way:** the email stays tagged "Working". After 8 minutes (`stuckAfterMinutes`) a later run takes it over. If it finds a reply already went out, or can't read the thread to check, it doesn't reply again; it flags the email for Joel. If the second attempt dies too, the email is flagged for Joel without another try.
-- **A run dies part way, and the reply goal:** recovery happens at the first check at least 8 minutes later, so an email caught in a crashed run can miss its goal by one check. That needs Microsoft 365 or n8n to fail mid-run, and the email is flagged for Joel either way.
+- **Claude has a passing error** (overloaded, timeout): if the next check is early enough to still meet the reply goal, the email is tagged "Secretary: Retrying" and that check tries once more. With checks every 12 minutes and an 18-minute goal, that's usually too late, so the fixed holding reply goes out right away and the email is held for review.
+- **Claude declines or returns something unusable:** the fixed holding reply goes out and the email is held for review.
+- **Creating, saving or sending a reply fails:** that email is flagged and tagged "Secretary: Needs Review". The other emails in the run carry on.
+- **A run dies part way:** the email stays tagged "Working". After 8 minutes (`stuckAfterMinutes`) a later run takes it over. If it finds a reply already went out, or can't read the thread to check, it doesn't reply again; it flags the email for review. If the second attempt dies too, the email is flagged for review without another try.
+- **A run dies part way, and the reply goal:** recovery happens at the first check at least 8 minutes later, so an email caught in a crashed run can miss its goal by one check. That needs Microsoft 365 or n8n to fail mid-run, and the email is flagged for review either way.
 - **Two runs at once:** checks are minutes apart, and each run tags the emails it claims. If runs ever overlap (a slow Microsoft 365 or a queued n8n), each one checks its claim again just before replying, and only the run that still holds it goes ahead.
 
 ## Going live, safely
@@ -70,7 +70,7 @@ Claude may only state facts written in `n8n/knowledge/club.md`. If a reply would
 | `schedule.afterHours` | The rest of the day: `pollMinutes` (60 means on the hour) and `replyWithinMinutes`. |
 | `model`, `effort`, `maxTokens` | The Claude model and how hard it thinks. |
 | `autoSendMinConfidence`, `autoSendCategories` | When a reply may go out unreviewed (see above). |
-| `staffDomains`, `alwaysHoldSenders` | Senders that are always held for Joel. |
+| `staffDomains`, `alwaysHoldSenders` | Senders that are always held for review, with no auto-reply: Club and Thoreau Capital addresses, and the former Secretary's addresses. |
 | `notifyOnHold` | Addresses to email a short notice whenever something is held. Empty means none. |
 | `categories` | The Outlook category names it uses. |
 

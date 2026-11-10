@@ -41,7 +41,7 @@
 const DATA = /*__DATA__*/null;
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const kind = (r) => r.route !== 'answer' ? 'skip' : (r.outcome === 'send' ? 'send' : r.outcome === 'no reply' ? 'skip' : r.outcome ? 'hold' : 'skip');
-const label = (r) => r.route === 'skip' ? 'no reply: ' + r.skipReason : r.route !== 'answer' ? r.route : r.outcome ? ({ send: 'would send', hold: 'would hold for Joel', 'no reply': 'no reply needed' }[r.outcome] || r.outcome) : 'to Claude (not run)';
+const label = (r) => r.route === 'skip' ? 'no reply: ' + r.skipReason : r.route !== 'answer' ? r.route : r.outcome ? ({ send: 'would send', hold: 'would hold for review', 'no reply': 'no reply needed' }[r.outcome] || r.outcome) : 'to Claude (not run)';
 const s = DATA.summary;
 document.getElementById('meta').textContent = `Generated ${new Date(DATA.generated).toLocaleString()} · ${DATA.usedClaude ? 'Claude was asked for every real email' : 'Claude was not called: sorting only'}`;
 const tile = (n, t) => `<div class="tile"><b>${esc(n)}</b>${esc(t)}</div>`;
@@ -50,9 +50,9 @@ document.getElementById('tiles').innerHTML = [
   tile(s.emails, 'emails received'),
   tile(R.filter((r) => r.route === 'answer').length, 'from real people'),
   tile(R.filter((r) => r.outcome === 'send').length, 'would send'),
-  tile(R.filter((r) => r.outcome === 'hold').length, 'would hold for Joel'),
-  tile(s.answeredByJoel, 'Joel actually answered'),
-  tile(s.joelMedianMinutes == null ? '—' : s.joelMedianMinutes + ' min', "Joel's median reply time"),
+  tile(R.filter((r) => r.outcome === 'hold').length, 'would hold for review'),
+  tile(s.answeredFromMailbox, 'actually answered from secretary@'),
+  tile(s.mailboxMedianMinutes == null ? '—' : s.mailboxMedianMinutes + ' min', 'median actual reply time'),
 ].join('');
 const groups = [['all', 'All'], ['send', 'Would send'], ['hold', 'Would hold'], ['skip', 'No reply']];
 let filter = 'all';
@@ -68,8 +68,8 @@ function render() {
       ${r.claude?.error ? `<h3>Claude error</h3><div>${esc(r.claude.error)}</div>` : ''}
       ${r.why?.length ? `<h3>Why</h3><ul>${r.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
       ${r.sent?.length ? `<h3>Would send</h3>${frames(r.sent)}` : ''}
-      ${r.draftForJoel?.length ? `<h3>Draft left for Joel</h3>${frames(r.draftForJoel)}` : ''}
-      <h3>What actually happened</h3><div>${r.actualReply ? `Joel replied after ${esc(r.actualReply.minutes)} min: ${esc(r.actualReply.text)}` : 'No reply from the mailbox in this export.'}</div>
+      ${r.draftForReview?.length ? `<h3>Draft left for review</h3>${frames(r.draftForReview)}` : ''}
+      <h3>What actually happened</h3><div>${r.actualReply ? `secretary@ replied after ${esc(r.actualReply.minutes)} min: ${esc(r.actualReply.text)}` : 'No reply from the mailbox in this export.'}</div>
     </div></details>`;
   }).join('') || '<p class="muted">Nothing here.</p>';
   document.querySelectorAll('iframe[data-html]').forEach((f) => { f.srcdoc = '<body style="font:14px system-ui;margin:10px">' + f.dataset.html; });

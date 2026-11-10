@@ -215,7 +215,7 @@ describe('Decide', () => {
   const good = {
     category: 'dining_question', action: 'send', confidence: 0.95, reply_mode: 'reply',
     reply_html: '<p>Dear Sarah,</p><p>Yes, we serve dinner on Friday.</p><p>With best regards,<br>The Office of the Secretary</p>',
-    holding_reply_html: '', missing_facts: [], risk_flags: [], summary_for_joel: 'Asked about Friday dinner.',
+    holding_reply_html: '', missing_facts: [], risk_flags: [], summary_for_staff: 'Asked about Friday dinner.',
   };
   // claims: what Check Claim read back for each email (default: still ours).
   const run = async (responses, ctxs, cfgOver = {}, claims) => {
@@ -241,12 +241,12 @@ describe('Decide', () => {
     assert.deepEqual(jobs[0].finalize, { categories: ['Blue', C.replied], flag: false });
   });
 
-  test('live: low confidence becomes a hold with a draft for Joel', async () => {
-    const jobs = await run([claude({ ...good, confidence: 0.6, holding_reply_html: `<p>Dear Sarah, thank you. Joel will follow up.</p>${SIGN}` })], [ctx()], { mode: 'live' });
+  test('live: low confidence becomes a hold with a draft for review', async () => {
+    const jobs = await run([claude({ ...good, confidence: 0.6, holding_reply_html: `<p>Dear Sarah, thank you. the Club team will follow up.</p>${SIGN}` })], [ctx()], { mode: 'live' });
     assert.deepEqual(jobs.map((j) => [j.kind, j.send]), [['reply', false], ['reply', true]]);
     assert.match(jobs[0].html, /Held because: confidence 0.6/);
     assert.equal(jobs[0].finalize, null);
-    assert.match(jobs[1].html, /Joel will follow up/);
+    assert.match(jobs[1].html, /the Club team will follow up/);
     assert.deepEqual(jobs[1].finalize, { categories: ['Blue', C.held], flag: true });
     assert.deepEqual(jobs[1].failTag, { categories: ['Blue', C.held], flag: true });
   });
@@ -259,10 +259,10 @@ describe('Decide', () => {
     ['no sign-off', { holding_reply_html: '<p>Dear Sarah, thank you for your note. We will be in touch.</p>' }],
   ]) {
     test(`live: a holding reply with ${label} is replaced by the fixed template`, async () => {
-      const jobs = await run([claude({ ...good, action: 'hold', holding_reply_html: `<p>Dear Sarah, Joel will follow up.</p>${SIGN}`, ...change })], [ctx()], { mode: 'live' });
+      const jobs = await run([claude({ ...good, action: 'hold', holding_reply_html: `<p>Dear Sarah, the Club team will follow up.</p>${SIGN}`, ...change })], [ctx()], { mode: 'live' });
       const sent = jobs.filter((j) => j.send);
       assert.equal(sent.length, 1);
-      assert.match(sent[0].html, /Joel Guerrero-Sparks, our Club Secretary, will follow up/);
+      assert.match(sent[0].html, /a member of the Club team will follow up with you personally/);
     });
   }
 
@@ -310,7 +310,7 @@ describe('Decide', () => {
     const jobs = await run([{ error: { message: 'Request failed with status code 529' } }], [ctx({ receivedDateTime: minsAgo(3) })], late);
     assert.equal(jobs.length, 1);
     assert.equal(jobs[0].send, true);
-    assert.match(jobs[0].html, /Joel Guerrero-Sparks/);
+    assert.match(jobs[0].html, /a member of the Club team will follow up/);
   });
 
   test('live: a Claude call that fails twice still sends a holding reply', async () => {
@@ -318,7 +318,7 @@ describe('Decide', () => {
     assert.equal(jobs.length, 1);
     assert.equal(jobs[0].send, true);
     assert.match(jobs[0].html, /Dear Sarah,/);
-    assert.match(jobs[0].html, /Joel Guerrero-Sparks/);
+    assert.match(jobs[0].html, /a member of the Club team will follow up/);
     assert.equal(jobs[0].finalize.categories.at(-1), C.held);
   });
 
@@ -337,13 +337,13 @@ describe('Decide', () => {
     assert.equal(unsure.at(-1).finalize.categories.at(-1), C.held);
   });
 
-  test('recovery: a thread that was already answered is flagged for Joel, never answered twice', async () => {
+  test('recovery: a thread that was already answered is flagged for review, never answered twice', async () => {
     const jobs = await run([claude(good)], [ctx({ recovery: true, alreadyReplied: true })], { mode: 'live' });
     assert.deepEqual(jobs.map((j) => j.kind), ['finalize']);
     assert.deepEqual(jobs[0].finalize, { categories: ['Blue', C.held], flag: true });
   });
 
-  test('recovery: an unreadable thread is flagged for Joel, never answered', async () => {
+  test('recovery: an unreadable thread is flagged for review, never answered', async () => {
     const jobs = await run([claude(good)], [ctx({ recovery: true, threadKnown: false })], { mode: 'live' });
     assert.deepEqual(jobs.map((j) => j.kind), ['finalize']);
     assert.equal(jobs[0].finalize.flag, true);
