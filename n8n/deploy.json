@@ -8,7 +8,7 @@
     "secretary-export": { "active": false }
   },
   "credentials": {
-    "microsoftOutlookOAuth2Api": { "name": "1892 Secretary Outlook", "id": "" },
+    "microsoftOutlookOAuth2Api": { "name": "1892 Secretary Outlook", "id": "xLF0btzZEJ2SjGx6" },
     "anthropicApi": { "name": "1892 Anthropic", "id": "" }
   }
 }
