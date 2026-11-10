@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secretary Replay</title>
+<style>
+  :root { --bg:#fbfaf7; --card:#fff; --ink:#1d1d1b; --muted:#6b6862; --line:#e4e0d8; --send:#1f7a4d; --hold:#a35a00; --skip:#6b6862; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161513; --card:#1f1e1b; --ink:#ece9e2; --muted:#a29e95; --line:#34322d; --send:#5cc98f; --hold:#f0a54a; --skip:#a29e95; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .muted { color: var(--muted); }
+  .tiles { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin:20px 0; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .tile b { display:block; font-size:24px; }
+  .filters { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 16px; }
+  .filters button { border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:999px; padding:5px 12px; cursor:pointer; font:inherit; }
+  .filters button[aria-pressed="true"] { border-color: var(--ink); font-weight:600; }
+  details { background:var(--card); border:1px solid var(--line); border-radius:10px; margin:8px 0; }
+  summary { cursor:pointer; padding:12px 14px; display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+  .tag { font-size:12px; font-weight:600; padding:1px 8px; border-radius:999px; border:1px solid currentColor; }
+  .send { color:var(--send); } .hold { color:var(--hold); } .skip { color:var(--skip); }
+  .body { padding: 0 14px 14px; }
+  .body h3 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:14px 0 6px; }
+  iframe { width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; min-height:120px; }
+  ul { margin: 4px 0; padding-left: 20px; }
+  .subject { font-weight:600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Secretary Inbox replay</h1>
+  <div class="muted" id="meta"></div>
+  <div class="tiles" id="tiles"></div>
+  <div class="filters" id="filters"></div>
+  <div id="list"></div>
+</main>
+<script>
+const DATA = /*__DATA__*/null;
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const kind = (r) => r.route !== 'answer' ? 'skip' : (r.outcome === 'send' ? 'send' : r.outcome === 'no reply' ? 'skip' : r.outcome ? 'hold' : 'skip');
+const label = (r) => r.route === 'skip' ? 'no reply: ' + r.skipReason : r.route !== 'answer' ? r.route : r.outcome ? ({ send: 'would send', hold: 'would hold for Joel', 'no reply': 'no reply needed' }[r.outcome] || r.outcome) : 'to Claude (not run)';
+const s = DATA.summary;
+document.getElementById('meta').textContent = `Generated ${new Date(DATA.generated).toLocaleString()} · ${DATA.usedClaude ? 'Claude was asked for every real email' : 'Claude was not called: sorting only'}`;
+const tile = (n, t) => `<div class="tile"><b>${esc(n)}</b>${esc(t)}</div>`;
+const R = DATA.results;
+document.getElementById('tiles').innerHTML = [
+  tile(s.emails, 'emails received'),
+  tile(R.filter((r) => r.route === 'answer').length, 'from real people'),
+  tile(R.filter((r) => r.outcome === 'send').length, 'would send'),
+  tile(R.filter((r) => r.outcome === 'hold').length, 'would hold for Joel'),
+  tile(s.answeredByJoel, 'Joel actually answered'),
+  tile(s.joelMedianMinutes == null ? '—' : s.joelMedianMinutes + ' min', "Joel's median reply time"),
+].join('');
+const groups = [['all', 'All'], ['send', 'Would send'], ['hold', 'Would hold'], ['skip', 'No reply']];
+let filter = 'all';
+function render() {
+  document.getElementById('filters').innerHTML = groups.map(([k, t]) => `<button data-k="${k}" aria-pressed="${filter === k}">${t}</button>`).join('');
+  const rows = R.filter((r) => filter === 'all' || kind(r) === filter);
+  document.getElementById('list').innerHTML = rows.map((r, i) => {
+    const c = r.claude && !r.claude.error ? r.claude : null;
+    const frames = (arr) => (arr || []).map((h) => `<iframe sandbox data-html="${esc(h)}"></iframe>`).join('');
+    return `<details><summary><span class="tag ${kind(r)}">${esc(label(r))}</span><span class="subject">${esc(r.subject || '(no subject)')}</span><span class="muted">${esc(r.fromName || r.from)} · ${esc(new Date(r.received).toLocaleString())}</span></summary><div class="body">
+      <h3>Their email</h3><div>${esc(r.preview)}</div>
+      ${c ? `<h3>Claude</h3><div>${esc(c.category)} · ${esc(c.action)} · confidence ${esc(c.confidence)}</div><div class="muted">${esc(c.summary_for_joel)}</div>` : ''}
+      ${r.claude?.error ? `<h3>Claude error</h3><div>${esc(r.claude.error)}</div>` : ''}
+      ${r.why?.length ? `<h3>Why</h3><ul>${r.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+      ${r.sent?.length ? `<h3>Would send</h3>${frames(r.sent)}` : ''}
+      ${r.draftForJoel?.length ? `<h3>Draft left for Joel</h3>${frames(r.draftForJoel)}` : ''}
+      <h3>What actually happened</h3><div>${r.actualReply ? `Joel replied after ${esc(r.actualReply.minutes)} min: ${esc(r.actualReply.text)}` : 'No reply from the mailbox in this export.'}</div>
+    </div></details>`;
+  }).join('') || '<p class="muted">Nothing here.</p>';
+  document.querySelectorAll('iframe[data-html]').forEach((f) => { f.srcdoc = '<body style="font:14px system-ui;margin:10px">' + f.dataset.html; });
+  document.querySelectorAll('#filters button').forEach((b) => b.onclick = () => { filter = b.dataset.k; render(); });
+}
+render();
+</script>
+</body>
+</html>

@@ -90,7 +90,8 @@ const userContent = [
   earlier ? `Earlier messages in this thread, oldest first:\n\n${earlier}` : 'There are no earlier messages in this thread.',
   '',
   senderIsStaff ? `Note: the sender is on a Club staff domain (${senderDomain}).` : '',
-  `Today is ${new Date().toUTCString()}.`,
+  // replayNow: set only by scripts/replay.mjs, so old emails are read as of when they arrived.
+  `Today is ${(msg.replayNow ? new Date(msg.replayNow) : new Date()).toUTCString()}.`,
   'Decide what to do and write the reply as JSON matching the schema.',
 ]
   .filter((line) => line !== null)

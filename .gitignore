@@ -1,3 +1,14 @@
 node_modules/
 dist/
 .env
+
+# Real email exports and replay reports: private, never commit.
+exports/
+replay-out/
+*.eml
+*.mbox
+*.pst
+*.msg
+
+# Made-up sample emails for the tests are fine.
+!test/fixtures/**
