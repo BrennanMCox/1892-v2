@@ -1,8 +1,12 @@
 // Code node "Select Messages" (Run Once for All Items).
 // Input: one item, the Graph response of List Inbox ({ value: [message, ...] }).
 // Output: one item per message worth acting on, oldest first, with route:
-//   "answer": a real person wrote; draft and send/hold a reply.
-//   "skip":   automated or our own mail; tag it so it is never looked at again.
+//   "answer": a real person wrote; draft and send/hold a reply. `working` is
+//             the category list Tag Working sets.
+//   "skip":   automated or our own mail; tag it (`tagNow`) so it is never
+//             looked at again.
+//   "giveup": two runs in a row died on this email; flag it for Joel (`tagNow`)
+//             without trying again.
 
 const cfg = $('Config').first().json;
 const C = cfg.categories;
@@ -46,11 +50,16 @@ function automatedReason(m, from) {
   return '';
 }
 
-const messages = ($input.first().json.value || []).slice();
+const page = $input.first().json;
+const messages = (page.value || []).slice();
+if (page['@odata.nextLink']) {
+  console.log('Select Messages: the Inbox has more recent mail than one page; the oldest is left for later runs.');
+}
 messages.sort((a, b) => Date.parse(a.receivedDateTime) - Date.parse(b.receivedDateTime));
 
 const out = [];
 let deferred = 0;
+let answered = 0;
 for (const m of messages) {
   const received = Date.parse(m.receivedDateTime);
   if (!(received >= cutoff)) continue;
@@ -59,6 +68,8 @@ for (const m of messages) {
   const cats = m.categories || [];
   if (cats.some((c) => FINAL.includes(c))) continue;
 
+  const retried = cats.includes(C.retry);
+  const keep = cats.filter((c) => c !== C.processing && c !== C.retry);
   let recovery = false;
   if (cats.includes(C.processing)) {
     // Another run is (or was) working on it. Take it over only once that run
@@ -80,17 +91,34 @@ for (const m of messages) {
     skipReason = automatedReason(m, replyAddress);
     if (skipReason) route = 'skip';
   }
-
-  if (out.length >= cfg.maxPerRun) {
-    deferred += 1;
-    continue;
+  if (route === 'answer' && recovery && retried) {
+    route = 'giveup';
+    skipReason = 'two runs failed on this email';
   }
+
+  // Only emails that go to Claude count toward the cap; tagging is cheap.
+  if (route === 'answer') {
+    if (answered >= cfg.maxPerRun) {
+      deferred += 1;
+      continue;
+    }
+    answered += 1;
+  }
+
+  let tagNow = null;
+  if (route === 'skip') tagNow = { categories: [...keep, C.skipped], flag: false };
+  if (route === 'giveup') tagNow = { categories: [...keep, C.held], flag: true };
+  // A recovery attempt is marked "retry", so if it dies too we give up next time.
+  const working = [...keep, C.processing, ...(recovery || retried ? [C.retry] : [])];
 
   out.push({
     json: {
       route,
       skipReason,
       recovery,
+      retried,
+      tagNow,
+      working,
       id: m.id,
       conversationId: m.conversationId,
       subject: m.subject || '',

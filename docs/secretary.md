@@ -5,8 +5,7 @@ The goal: every real person who writes to **secretary@1892club.com** gets a repl
 ## What it does
 
 ```
-New mail (checked every minute) ─┐
-Safety sweep (every 10 minutes) ─┴─> list the last 24h of Inbox mail
+Every minute ─> list the last 6 hours of Inbox mail
    └─> skip anything already handled, or automated (newsletters, receipts,
        out-of-office replies, bounces, meeting invites, our own mail)
    └─> tag the email "Secretary: Working"
@@ -29,15 +28,19 @@ A reply goes out with no person reading it only if **all** of these hold. Otherw
 - The category is on the `autoSendCategories` list: general questions, dining questions, booking requests (only to gather missing details, never to confirm), and thank-yous.
 - Claude listed no missing facts and no risks (money, booking changes, membership, complaints, legal, press, safety, anything sensitive, unclear or suspicious).
 - The sender isn't Club staff (`staffDomains`) or on `alwaysHoldSenders`.
-- The reply carries the Office of the Secretary sign-off and has no links, images or scripts.
+- The reply carries the Office of the Secretary sign-off and is plain paragraphs: no links, web addresses, images, styling or other HTML.
+
+The holding reply goes out unread too, so it gets the same HTML checks. If Claude flagged any risk, or its holding reply fails a check, the workflow sends a fixed, plain holding reply instead. Mail from Club staff (`staffDomains`) and `alwaysHoldSenders` gets no holding reply at all; it's just flagged for Joel. A website-form email (one with a Reply-To address) is answered to the Reply-To person only, never reply-all.
 
 Claude may only state facts written in `n8n/knowledge/club.md`. If a reply would need anything else (hours, prices, rooms, policies), the email is held. So **the more facts Joel adds to that file, the more emails get answered fully and automatically.**
 
 ### When something goes wrong
 
-- **Claude is down or declines:** a polite holding reply still goes out, and the email is held for Joel.
-- **A run fails halfway:** the email stays tagged "Working". After 6 minutes (`stuckAfterMinutes`) the next run picks it up again. If a reply already went out in that thread, it only tags the email, so nobody gets two replies.
-- **The 15 minutes:** new mail starts a run within about a minute. The 10-minute sweep catches anything a failed run missed.
+- **Claude has a passing error** (overloaded, timeout): the email is tagged "Secretary: Retrying" and the next run, a minute later, tries once more. If that fails too, the fixed holding reply goes out and the email is held for Joel.
+- **Claude declines or returns something unusable:** the fixed holding reply goes out and the email is held for Joel.
+- **Creating, saving or sending a reply fails:** that email is flagged and tagged "Secretary: Needs Joel". The other emails in the run carry on.
+- **A run dies part way:** the email stays tagged "Working". After 8 minutes (`stuckAfterMinutes`) a later run takes it over. If it finds a reply already went out, or can't read the thread to check, it doesn't reply again; it flags the email for Joel. If the second attempt dies too, the email is flagged for Joel without another try.
+- **The 15 minutes:** a new email is picked up within a minute and normally answered within two or three. Only one run starts per minute, so two runs never pick up the same email.
 
 ## Going live, safely
 
@@ -54,9 +57,9 @@ Claude may only state facts written in `n8n/knowledge/club.md`. If a reply would
 | `mailboxAddress` | The mailbox's own address, so it never answers itself. |
 | `processReceivedAfter` | Ignore mail received before this time (ISO 8601, UTC). |
 | `maxAgeHours` | Never answer mail older than this. |
-| `maxPerRun` | At most this many emails per run; the rest wait for the next run. |
-| `stuckAfterMinutes` | Take over an email still tagged "Working" after this long. Keep it above 5 (the run time limit). |
-| `sweepMinutes` | How often the safety sweep runs. |
+| `maxPerRun` | At most this many emails go to Claude per run; the rest wait a minute. Automated mail doesn't count. |
+| `stuckAfterMinutes` | Take over an email still tagged "Working" after this long. Keep it above 7 (the run time limit). |
+| `pollMinutes` | How often it checks the Inbox. 1 meets the 15-minute goal comfortably. |
 | `model`, `effort`, `maxTokens` | The Claude model and how hard it thinks. |
 | `autoSendMinConfidence`, `autoSendCategories` | When a reply may go out unreviewed (see above). |
 | `staffDomains`, `alwaysHoldSenders` | Senders that are always held for Joel. |
@@ -67,7 +70,7 @@ The wording, voice and rules Claude follows are in `n8n/prompts/secretary-system
 
 ## Costs to know about
 
-- **n8n executions.** The new-mail trigger only starts a run when mail arrives. The safety sweep starts about 144 runs a day at 10 minutes (about 4,300 a month). On an n8n Cloud plan with an execution cap, raise `sweepMinutes` (for example to 30) if needed.
+- **n8n executions.** Checking every minute is about 1,440 runs a day (about 43,000 a month), most of which find nothing. That's fine on a self-hosted n8n. On an n8n Cloud plan with an execution cap, check the cap first. `pollMinutes` of 5 still meets the 15-minute goal at about 8,600 runs a month.
 - **Claude.** One Claude call per real email. Machine-sent mail is filtered out before Claude sees it.
 
 ## Outlook categories

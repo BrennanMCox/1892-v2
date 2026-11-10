@@ -47,12 +47,16 @@ function people(list) {
     .join(', ');
 }
 
-const thread = ($json.value || [])
+// Get Thread continues on error; never mistake "couldn't read the thread" for
+// "nobody has replied yet".
+const threadKnown = !$json.error && Array.isArray($json.value) && !$json['@odata.nextLink'];
+const thread = (Array.isArray($json.value) ? $json.value : [])
   .filter((m) => !m.isDraft && m.id !== msg.id)
   .sort((a, b) => Date.parse(a.sentDateTime || a.receivedDateTime) - Date.parse(b.sentDateTime || b.receivedDateTime));
 
 // If this mailbox already sent something in the thread after the email arrived,
-// a previous run replied and then failed before tagging it. Do not reply twice.
+// a previous run replied and then failed before tagging it (Decide only uses
+// this on recovery runs: on a fresh email it would be a reply to an earlier one).
 const receivedAt = Date.parse(msg.receivedDateTime);
 const alreadyReplied = thread.some(
   (m) =>
@@ -96,6 +100,7 @@ return {
   json: {
     ...msg,
     alreadyReplied,
+    threadKnown,
     senderIsStaff,
     request: {
       model: cfg.model,

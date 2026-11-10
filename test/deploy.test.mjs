@@ -108,6 +108,15 @@ describe('deploy', () => {
     assert.equal(n8n.state.workflows[0].active, true);
   });
 
+  test('never sends a credential without an id, and ignores credentials outside the project', async () => {
+    const n8n = fakeN8n({ credentials: [{ id: 'cX', name: 'Outlook', type: 'microsoftOutlookOAuth2Api', shared: [{ id: 'other', name: 'Other' }] }] });
+    const [r] = await deployAll(built, { client: n8n.client, deployConfig: cfg(), log: quiet });
+    const nodes = n8n.state.workflows[0].nodes;
+    for (const n of nodes) for (const ref of Object.values(n.credentials || {})) assert.ok(ref.id, n.name);
+    assert.ok(!JSON.stringify(nodes).includes('"cX"'));
+    assert.equal(r.state, 'off');
+  });
+
   test('will not turn a workflow on while credentials are missing', async () => {
     const n8n = fakeN8n();
     const logs = [];

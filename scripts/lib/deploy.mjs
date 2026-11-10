@@ -6,11 +6,9 @@
 //   1. n8n/deploy.json credentials.<type>.id, if set;
 //   2. the n8n credential with that type whose name matches credentials.<type>.name
 //      (looked up with GET /credentials on n8n 2.8+);
-//   3. whatever credential the same node already has in n8n (picked by hand once);
-//   4. otherwise the node is sent with { id: null, name }, which n8n itself binds
-//      to a same-named credential in the project when there is exactly one.
-// After saving, the saved workflow is checked. If any node still has no
-// credential, the workflow is left switched off so it can't fail every minute.
+//   3. whatever credential the same node already has in n8n (picked by hand once).
+// Otherwise the node is saved without one (n8n rejects unknown credential ids),
+// and the workflow is left switched off so it can't fail every minute.
 
 import { createHash } from 'node:crypto';
 
@@ -37,11 +35,12 @@ function managedNote(meta, repoUrl) {
   };
 }
 
-// Builds the create/update body. `unresolved` lists credentials left for n8n to
-// bind by name; `problems` lists ones that can't be bound at all.
-export function prepareWorkflow({ meta, workflow }, { deployConfig = {}, credentialsByName = new Map(), existing = null, repoUrl = '' } = {}) {
+// Builds the create/update body. `problems` lists credentials it couldn't find.
+export function prepareWorkflow(
+  { meta, workflow },
+  { deployConfig = {}, credentialsByName = new Map(), existing = null, repoUrl = '', projectId = null } = {},
+) {
   const existingNodes = new Map((existing?.nodes || []).map((n) => [n.name, n]));
-  const unresolved = [];
   const problems = [];
   const nodes = [...workflow.nodes, managedNote(meta, repoUrl)].map((node) => {
     const out = { id: nodeId(meta.key, node.name), ...node };
@@ -52,7 +51,15 @@ export function prepareWorkflow({ meta, workflow }, { deployConfig = {}, credent
       let ref = given?.id ? given : null;
       if (!ref && wanted.id) ref = { id: String(wanted.id), name: wanted.name || '' };
       if (!ref && wanted.name) {
-        const matches = (credentialsByName.get(wanted.name) || []).filter((c) => !c.type || c.type === type);
+        let matches = (credentialsByName.get(wanted.name) || []).filter((c) => !c.type || c.type === type);
+        if (projectId) {
+          // Only credentials shared with the project (older n8n doesn't say; trust those).
+          const inProject = matches.filter((c) => !Array.isArray(c.shared) || c.shared.some((x) => x.id === projectId));
+          if (matches.length && !inProject.length) {
+            problems.push(`${node.name}: "${type}" credential "${wanted.name}" exists but not in the n8n project; move or share it there`);
+          }
+          matches = inProject;
+        }
         if (matches.length === 1) ref = { id: String(matches[0].id), name: matches[0].name };
         if (matches.length > 1) problems.push(`${node.name}: ${matches.length} "${type}" credentials are named "${wanted.name}"; put the right id in n8n/deploy.json`);
       }
@@ -60,12 +67,10 @@ export function prepareWorkflow({ meta, workflow }, { deployConfig = {}, credent
         const prev = existingNodes.get(node.name)?.credentials?.[type];
         if (prev?.id) ref = { id: String(prev.id), name: prev.name || '' };
       }
-      if (!ref && wanted.name) {
-        ref = { id: null, name: wanted.name };
-        unresolved.push(`${node.name}: "${type}" credential "${wanted.name}" (left for n8n to match by name)`);
-      }
       if (ref) creds[type] = ref;
-      else problems.push(`${node.name}: no "${type}" credential configured in n8n/deploy.json`);
+      else if (!problems.some((x) => x.startsWith(`${node.name}:`))) {
+        problems.push(`${node.name}: no "${type}" credential${wanted.name ? ` named "${wanted.name}" found` : ' set in n8n/deploy.json'}`);
+      }
     }
     if (Object.keys(creds).length) out.credentials = creds;
     else delete out.credentials;
@@ -73,7 +78,6 @@ export function prepareWorkflow({ meta, workflow }, { deployConfig = {}, credent
   });
   return {
     body: { name: workflow.name, nodes, connections: workflow.connections, settings: workflow.settings || {} },
-    unresolved,
     problems,
   };
 }
@@ -159,8 +163,8 @@ export async function deployAll(built, { client, deployConfig, dryRun = false, r
       continue;
     }
     const existing = same[0] ? await client.getWorkflow(same[0].id) : null;
-    const { body, unresolved, problems } = prepareWorkflow(item, { deployConfig, credentialsByName, existing, repoUrl });
-    for (const m of [...problems, ...unresolved]) log(`  note: ${m}`);
+    const { body, problems } = prepareWorkflow(item, { deployConfig, credentialsByName, existing, repoUrl, projectId: project?.id });
+    for (const m of problems) log(`  note: ${m}`);
 
     if (dryRun) {
       log(`  dry run: would ${existing ? `update workflow ${existing.id}` : 'create it'}${want.active ? ', then turn it on if its credentials are set' : ''}`);

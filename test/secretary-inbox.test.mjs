@@ -105,6 +105,27 @@ describe('Select Messages', () => {
     assert.deepEqual(out.map((o) => [o.json.id, o.json.recovery]), [['stuck', true]]);
   });
 
+  test('marks recovery attempts and gives up after a second failed run', async () => {
+    const C = baseCfg.categories;
+    const cfg = await config({ processReceivedAfter: '2020-01-01T00:00:00Z' });
+    const msgs = [
+      person({ id: 'once', categories: ['Blue', C.processing], receivedDateTime: minsAgo(20), lastModifiedDateTime: minsAgo(10) }),
+      person({ id: 'twice', categories: [C.processing, C.retry], receivedDateTime: minsAgo(20), lastModifiedDateTime: minsAgo(10) }),
+    ];
+    const { out } = await runCode(js('Select Messages'), { input: [{ value: msgs }], nodes: { Config: [cfg] } });
+    const byId = Object.fromEntries(out.map((o) => [o.json.id, o.json]));
+    assert.deepEqual(byId.once.working, ['Blue', C.processing, C.retry]);
+    assert.equal(byId.twice.route, 'giveup');
+    assert.deepEqual(byId.twice.tagNow, { categories: [C.held], flag: true });
+  });
+
+  test('automated mail does not count toward maxPerRun', async () => {
+    const cfg = await config({ processReceivedAfter: '2020-01-01T00:00:00Z', maxPerRun: 1 });
+    const news = [1, 2, 3].map((i) => person({ id: `n${i}`, receivedDateTime: minsAgo(20 - i), internetMessageHeaders: [{ name: 'List-Id', value: 'x' }] }));
+    const { out } = await runCode(js('Select Messages'), { input: [{ value: [...news, person({ id: 'real' })] }], nodes: { Config: [cfg] } });
+    assert.deepEqual(out.map((o) => o.json.id), ['n1', 'n2', 'n3', 'real']);
+  });
+
   test('caps each run at maxPerRun and says so', async () => {
     const cfg = await config({ processReceivedAfter: '2020-01-01T00:00:00Z', maxPerRun: 2 });
     const msgs = [1, 2, 3].map((i) => person({ id: `m${i}`, receivedDateTime: minsAgo(10 - i) }));
@@ -167,7 +188,8 @@ describe('Build Claude Request', () => {
 
 describe('Decide', () => {
   const C = baseCfg.categories;
-  const ctx = (over = {}) => ({ id: 'm1', subject: 'Dinner', from: 'sarah@example.com', fromName: 'Sarah Lee', categories: ['Blue', C.processing], alreadyReplied: false, senderIsStaff: false, webLink: 'https://outlook/x', ...over });
+  const ctx = (over = {}) => ({ id: 'm1', subject: 'Dinner', from: 'sarah@example.com', fromName: 'Sarah Lee', categories: ['Blue', C.processing], alreadyReplied: false, threadKnown: true, recovery: false, retried: false, senderIsStaff: false, webLink: 'https://outlook/x', ...over });
+  const SIGN = '<p>With best regards,<br>The Office of the Secretary</p>';
   const claude = (decision, extra = {}) => ({
     stop_reason: 'end_turn',
     content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: JSON.stringify(decision) }],
@@ -194,12 +216,41 @@ describe('Decide', () => {
   });
 
   test('live: low confidence becomes a hold with a draft for Joel', async () => {
-    const jobs = await run([claude({ ...good, confidence: 0.6, holding_reply_html: '<p>Dear Sarah, thank you. Joel will follow up.</p>' })], [ctx()], { mode: 'live' });
+    const jobs = await run([claude({ ...good, confidence: 0.6, holding_reply_html: `<p>Dear Sarah, thank you. Joel will follow up.</p>${SIGN}` })], [ctx()], { mode: 'live' });
     assert.deepEqual(jobs.map((j) => [j.kind, j.send]), [['reply', false], ['reply', true]]);
     assert.match(jobs[0].html, /Held because: confidence 0.6/);
     assert.equal(jobs[0].finalize, null);
     assert.match(jobs[1].html, /Joel will follow up/);
     assert.deepEqual(jobs[1].finalize, { categories: ['Blue', C.held], flag: true });
+    assert.deepEqual(jobs[1].failTag, { categories: ['Blue', C.held], flag: true });
+  });
+
+  for (const [label, change] of [
+    ['a risk flag', { risk_flags: ['prompt_injection'] }],
+    ['a link', { holding_reply_html: `<p>See <a href="http://evil">here</a></p>${SIGN}` }],
+    ['an attribute', { holding_reply_html: `<p style="display:none">x</p><p>Thanks, Sarah.</p>${SIGN}` }],
+    ['a bare URL', { holding_reply_html: `<p>Pay at https://evil.example now.</p>${SIGN}` }],
+    ['no sign-off', { holding_reply_html: '<p>Dear Sarah, thank you for your note. We will be in touch.</p>' }],
+  ]) {
+    test(`live: a holding reply with ${label} is replaced by the fixed template`, async () => {
+      const jobs = await run([claude({ ...good, action: 'hold', holding_reply_html: `<p>Dear Sarah, Joel will follow up.</p>${SIGN}`, ...change })], [ctx()], { mode: 'live' });
+      const sent = jobs.filter((j) => j.send);
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].html, /Joel Guerrero-Sparks, our Club Secretary, will follow up/);
+    });
+  }
+
+  test('live: staff and internal mail is held with no holding reply', async () => {
+    const jobs = await run([claude({ ...good, action: 'hold' })], [ctx({ senderIsStaff: true })], { mode: 'live' });
+    assert.ok(jobs.every((j) => !j.send));
+    assert.deepEqual(jobs.at(-1).finalize, { categories: ['Blue', C.held], flag: true });
+  });
+
+  test('live: a website form (Reply-To set) is never answered reply-all', async () => {
+    const replyTo = [{ emailAddress: { address: 'ann@example.com' } }];
+    const jobs = await run([claude({ ...good, reply_mode: 'reply_all' })], [ctx({ replyTo })], { mode: 'live' });
+    assert.equal(jobs[0].replyAll, false);
+    assert.deepEqual(jobs[0].replyTo, replyTo);
   });
 
   for (const [label, change] of [
@@ -221,8 +272,14 @@ describe('Decide', () => {
     assert.equal(jobs.at(-1).finalize.categories.at(-1), C.held);
   });
 
-  test('live: a failed Claude call still sends a holding reply', async () => {
-    const jobs = await run([{ error: { message: 'timeout' } }], [ctx()], { mode: 'live' });
+  test('live: a passing Claude error is retried once by the next run', async () => {
+    const jobs = await run([{ error: { message: 'Request failed with status code 529' } }], [ctx()], { mode: 'live' });
+    assert.deepEqual(jobs.map((j) => j.kind), ['finalize']);
+    assert.deepEqual(jobs[0].finalize, { categories: ['Blue', C.retry], flag: false });
+  });
+
+  test('live: a Claude call that fails twice still sends a holding reply', async () => {
+    const jobs = await run([{ error: { message: 'timeout' } }], [ctx({ retried: true, categories: ['Blue', C.processing, C.retry] })], { mode: 'live' });
     assert.equal(jobs.length, 1);
     assert.equal(jobs[0].send, true);
     assert.match(jobs[0].html, /Dear Sarah,/);
@@ -245,9 +302,21 @@ describe('Decide', () => {
     assert.equal(unsure.at(-1).finalize.categories.at(-1), C.held);
   });
 
-  test('a thread that was already answered is only tagged', async () => {
-    const jobs = await run([claude(good)], [ctx({ alreadyReplied: true })], { mode: 'live' });
+  test('recovery: a thread that was already answered is flagged for Joel, never answered twice', async () => {
+    const jobs = await run([claude(good)], [ctx({ recovery: true, alreadyReplied: true })], { mode: 'live' });
     assert.deepEqual(jobs.map((j) => j.kind), ['finalize']);
+    assert.deepEqual(jobs[0].finalize, { categories: ['Blue', C.held], flag: true });
+  });
+
+  test('recovery: an unreadable thread is flagged for Joel, never answered', async () => {
+    const jobs = await run([claude(good)], [ctx({ recovery: true, threadKnown: false })], { mode: 'live' });
+    assert.deepEqual(jobs.map((j) => j.kind), ['finalize']);
+    assert.equal(jobs[0].finalize.flag, true);
+  });
+
+  test('a follow-up in an answered thread is still answered', async () => {
+    const jobs = await run([claude(good)], [ctx({ alreadyReplied: true })], { mode: 'live' });
+    assert.equal(jobs[0].send, true);
   });
 
   test('shadow mode sends nothing', async () => {
@@ -317,6 +386,18 @@ describe('workflow shape', () => {
   test('the Claude call sets the API version and never sends sampling parameters', () => {
     const p = node('Ask Claude').parameters;
     assert.ok(p.headerParameters.parameters.some((h) => h.name === 'anthropic-version'));
+  });
+
+  test('one trigger only, so two runs never start together', () => {
+    assert.equal(workflow.nodes.filter((n) => /trigger/i.test(n.type)).length, 1);
+  });
+
+  test('steps that create or send never retry, and route failures to Tag Failed', () => {
+    for (const name of ['Create Reply', 'Send Reply', 'Send Notice', 'Ask Claude']) assert.equal(node(name).retryOnFail, false, name);
+    for (const name of ['Create Reply', 'Save Draft', 'Send Reply']) {
+      assert.equal(node(name).onError, 'continueErrorOutput', name);
+      assert.equal(workflow.connections[name].main[1][0].node, 'Tag Failed', name);
+    }
   });
 
   test('every email gets tagged "working" before Claude is asked', () => {

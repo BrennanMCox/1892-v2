@@ -1,12 +1,14 @@
 // Builds the "Secretary Inbox" n8n workflow.
 //
-// How it works, in one breath: whenever new mail lands in the secretary@ inbox
-// (Outlook trigger, checked every minute) and on a slower safety sweep, it lists
-// recent Inbox mail, skips anything already tagged or machine-sent, tags the rest
-// "working", asks Claude to classify and draft a reply, applies hard safety rules,
-// then either sends the reply, or sends a short holding reply and leaves Claude's
-// full draft in Drafts for Joel. Finally it tags the email so it is never
-// answered twice.
+// How it works, in one breath: every minute it lists recent Inbox mail, skips
+// anything already tagged or machine-sent, tags the rest "working", asks Claude
+// to classify and draft a reply, applies hard safety rules, then either sends
+// the reply, or sends a short holding reply and leaves Claude's full draft in
+// Drafts for Joel. Finally it tags the email so it is never answered twice.
+// Any step that fails for an email flags that email for Joel.
+//
+// One schedule trigger, on purpose: runs start a minute apart, so two runs
+// never pick up the same email (the "working" tag lands within seconds).
 //
 // The node logic lives in ./code/*.js so it can be read and tested on its own.
 
@@ -32,6 +34,9 @@ export function build({ code, readJson, readText }) {
 
   const at = (col, row) => [col * 240, row * 200];
 
+  // Outlook allows 4 requests at a time per mailbox; send at most 2 per node.
+  // Retries repeat the whole node for every item, so steps that create or send
+  // something never retry: they hand failures to "Tag Failed" instead.
   const graph = (name, position, method, urlExpr, extra = {}) => ({
     name,
     type: 'n8n-nodes-base.httpRequest',
@@ -43,12 +48,10 @@ export function build({ code, readJson, readText }) {
       authentication: 'predefinedCredentialType',
       nodeCredentialType: OUTLOOK,
       ...extra.parameters,
-      options: { timeout: 30000, ...(extra.options || {}) },
+      options: { timeout: 30000, batching: { batch: { batchSize: 2, batchInterval: 250 } }, ...(extra.options || {}) },
     },
     credentials: { [OUTLOOK]: null },
-    retryOnFail: true,
-    maxTries: extra.maxTries ?? 3,
-    waitBetweenTries: 3000,
+    ...(extra.noRetry ? { retryOnFail: false } : { retryOnFail: true, maxTries: 3, waitBetweenTries: 3000 }),
     ...(extra.onError ? { onError: extra.onError } : {}),
   });
 
@@ -91,28 +94,17 @@ export function build({ code, readJson, readText }) {
     },
   });
 
+  const tagBody = (ref) =>
+    jsonBody(`Object.assign({ categories: ${ref}.categories }, ${ref}.flag ? { flag: { flagStatus: 'flagged' } } : {})`);
+
   const nodes = [
     {
-      name: 'New Mail',
-      type: 'n8n-nodes-base.microsoftOutlookTrigger',
-      typeVersion: 1,
-      position: at(0, 0),
-      parameters: {
-        pollTimes: { item: [{ mode: 'everyMinute' }] },
-        event: 'messageReceived',
-        output: 'simple',
-        filters: { readStatus: 'both' },
-        options: {},
-      },
-      credentials: { [OUTLOOK]: null },
-    },
-    {
-      name: 'Safety Sweep',
+      name: 'Every Minute',
       type: 'n8n-nodes-base.scheduleTrigger',
       typeVersion: 1.2,
-      position: at(0, 1),
+      position: at(0, 0.5),
       parameters: {
-        rule: { interval: [{ field: 'minutes', minutesInterval: config.sweepMinutes ?? 10 }] },
+        rule: { interval: [{ field: 'minutes', minutesInterval: config.pollMinutes ?? 1 }] },
       },
     },
     codeNode('Config', at(1, 0.5), 'config.js', 'all', { CONFIG: config }),
@@ -135,11 +127,12 @@ export function build({ code, readJson, readText }) {
     }),
     codeNode('Select Messages', at(3, 0.5), 'select-messages.js', 'all'),
     ifNode('Real Person?', at(4, 0.5), '$json.route', 'equals', 'answer'),
-    graph('Tag No Reply Needed', at(5, 1.5), 'PATCH', `{{ ${GRAPH} }}/messages/{{ $json.id }}`, {
-      parameters: jsonBody(`{ categories: [...$json.categories, ${CFG}.categories.skipped] }`),
+    graph('Tag Without Reply', at(5, 1.5), 'PATCH', `{{ ${GRAPH} }}/messages/{{ $json.id }}`, {
+      parameters: tagBody('$json.tagNow'),
+      onError: 'continueRegularOutput',
     }),
     graph('Tag Working', at(5, 0), 'PATCH', `{{ ${GRAPH} }}/messages/{{ $json.id }}`, {
-      parameters: jsonBody(`{ categories: [...$json.categories.filter(c => c !== ${CFG}.categories.processing), ${CFG}.categories.processing] }`),
+      parameters: jsonBody('{ categories: $json.working }'),
     }),
     graph('Get Thread', at(6, 0), 'GET', `{{ ${GRAPH} }}/messages`, {
       parameters: {
@@ -151,7 +144,7 @@ export function build({ code, readJson, readText }) {
               value: "=conversationId eq '{{ $('Select Messages').item.json.conversationId.replace(/'/g, \"''\") }}'",
             },
             { name: '$select', value: 'id,from,sentDateTime,receivedDateTime,isDraft,body,bodyPreview' },
-            { name: '$top', value: '25' },
+            { name: '$top', value: '50' },
           ],
         },
       },
@@ -162,6 +155,8 @@ export function build({ code, readJson, readText }) {
       REPLY_SCHEMA: replySchema,
     }),
     {
+      // No node-level retry (it would re-ask Claude for every email). Decide
+      // hands an email with a passing API error back for the next run instead.
       name: 'Ask Claude',
       type: 'n8n-nodes-base.httpRequest',
       typeVersion: 4.2,
@@ -179,41 +174,45 @@ export function build({ code, readJson, readText }) {
           ],
         },
         ...jsonBody('$json.request'),
-        options: { timeout: 120000 },
+        options: { timeout: 100000, batching: { batch: { batchSize: 5, batchInterval: 100 } } },
       },
       credentials: { [ANTHROPIC]: null },
-      retryOnFail: true,
-      maxTries: 2,
-      waitBetweenTries: 5000,
+      retryOnFail: false,
       onError: 'continueRegularOutput',
     },
     codeNode('Decide', at(9, 0), 'decide.js', 'all'),
     ifNode('Reply Job?', at(10, 0), '$json.kind', 'equals', 'reply'),
-    ifNode('Notice Job?', at(11, 1), '$json.kind', 'equals', 'notify'),
+    ifNode('Notice Job?', at(11, 1.5), '$json.kind', 'equals', 'notify'),
     graph('Create Reply', at(11, 0), 'POST', `{{ ${GRAPH} }}/messages/{{ $json.messageId }}/{{ $json.replyAll ? 'createReplyAll' : 'createReply' }}`, {
       parameters: { sendBody: true, specifyBody: 'json', jsonBody: '{}' },
-      maxTries: 2,
+      noRetry: true,
+      onError: 'continueErrorOutput',
     }),
     codeNode('Fill Draft', at(12, 0), 'fill-draft.js', 'each'),
     graph('Save Draft', at(13, 0), 'PATCH', `{{ ${GRAPH} }}/messages/{{ $json.draftId }}`, {
       parameters: jsonBody('$json.patch'),
+      onError: 'continueErrorOutput',
     }),
     ifNode('Send Now?', at(14, 0), "$('Decide').item.json.send", 'true'),
     graph('Send Reply', at(15, -0.5), 'POST', `{{ ${GRAPH} }}/messages/{{ $('Fill Draft').item.json.draftId }}/send`, {
       // No body, as n8n's own Outlook node does for drafts/send.
-      maxTries: 1,
+      noRetry: true,
+      onError: 'continueErrorOutput',
     }),
     ifNode('Last Job?', at(16, 0), "!!$('Decide').item.json.finalize", 'true'),
     graph('Tag Done', at(17, 0.5), 'PATCH', `{{ ${GRAPH} }}/messages/{{ $('Decide').item.json.messageId }}`, {
-      parameters: jsonBody(
-        "Object.assign({ categories: $('Decide').item.json.finalize.categories }, $('Decide').item.json.finalize.flag ? { flag: { flagStatus: 'flagged' } } : {})",
-      ),
+      parameters: tagBody("$('Decide').item.json.finalize"),
+      onError: 'continueRegularOutput',
+    }),
+    graph('Tag Failed', at(17, 2), 'PATCH', `{{ ${GRAPH} }}/messages/{{ $('Decide').item.json.messageId }}`, {
+      parameters: tagBody("$('Decide').item.json.failTag"),
+      onError: 'continueRegularOutput',
     }),
     graph('Send Notice', at(12, 1.5), 'POST', `{{ ${GRAPH} }}/sendMail`, {
       parameters: jsonBody(
         "{ message: { subject: $json.noticeSubject, body: { contentType: 'HTML', content: $json.noticeHtml }, toRecipients: $json.to.map(a => ({ emailAddress: { address: a } })) }, saveToSentItems: true }",
       ),
-      maxTries: 1,
+      noRetry: true,
       onError: 'continueRegularOutput',
     }),
   ];
@@ -221,12 +220,11 @@ export function build({ code, readJson, readText }) {
   const main = (...targets) => ({ main: targets.map((t) => (t ? t.map((node) => ({ node, type: 'main', index: 0 })) : [])) });
 
   const connections = {
-    'New Mail': main(['Config']),
-    'Safety Sweep': main(['Config']),
+    'Every Minute': main(['Config']),
     Config: main(['List Inbox']),
     'List Inbox': main(['Select Messages']),
     'Select Messages': main(['Real Person?']),
-    'Real Person?': main(['Tag Working'], ['Tag No Reply Needed']),
+    'Real Person?': main(['Tag Working'], ['Tag Without Reply']),
     'Tag Working': main(['Get Thread']),
     'Get Thread': main(['Build Claude Request']),
     'Build Claude Request': main(['Ask Claude']),
@@ -234,11 +232,12 @@ export function build({ code, readJson, readText }) {
     Decide: main(['Reply Job?']),
     'Reply Job?': main(['Create Reply'], ['Notice Job?']),
     'Notice Job?': main(['Send Notice'], ['Tag Done']),
-    'Create Reply': main(['Fill Draft']),
+    // Error outputs (second) of the steps that create or send go to Tag Failed.
+    'Create Reply': main(['Fill Draft'], ['Tag Failed']),
     'Fill Draft': main(['Save Draft']),
-    'Save Draft': main(['Send Now?']),
+    'Save Draft': main(['Send Now?'], ['Tag Failed']),
     'Send Now?': main(['Send Reply'], ['Last Job?']),
-    'Send Reply': main(['Last Job?']),
+    'Send Reply': main(['Last Job?'], ['Tag Failed']),
     'Last Job?': main(['Tag Done'], null),
   };
 
@@ -248,7 +247,7 @@ export function build({ code, readJson, readText }) {
     connections,
     settings: {
       executionOrder: 'v1',
-      executionTimeout: 300,
+      executionTimeout: 420,
       timezone: 'America/New_York',
       saveDataErrorExecution: 'all',
       saveDataSuccessExecution: 'all',

@@ -2,10 +2,11 @@
 // Input: one Claude API response per email (or an error item if the call failed).
 // Output: the jobs to run for each email, in order:
 //   kind "reply":    create a reply draft with `html`; send it now if `send`.
-//   kind "finalize": tag the original email (and flag it for Joel if held).
 //   kind "notify":   email a held-message notice to cfg.notifyOnHold.
-// The last job of each email is always "finalize" or a "reply" with finalize set,
-// so an email is only tagged done after its replies went out.
+//   kind "finalize": set the email's categories (and flag it for Joel if `flag`).
+// The last job of each email is always "finalize", or a "reply" with
+// `finalize` set, so an email is only tagged done after its replies went out.
+// Every job carries `failTag`: what "Tag Failed" sets if a step errors.
 
 const cfg = $('Config').first().json;
 const C = cfg.categories;
@@ -34,12 +35,29 @@ function templateHolding(ctx) {
   );
 }
 
-// Pull the JSON decision out of a Messages API response. Returns { decision } or { problem }.
+// Claude's HTML may only be <p> and <br> tags without attributes, with no links,
+// comments or character references. Anything else and we don't send it unread.
+function safeHtml(html) {
+  const s = String(html || '');
+  if (/<!--|&#|javascript:/i.test(s)) return false;
+  if (!(s.match(/<[^>]*>/g) || []).every((t) => /^<\/?(p|br)\s*\/?>$/i.test(t))) return false;
+  const text = s.replace(/<[^>]*>/g, ' ');
+  return !/(https?:\/\/|www\.|\bftp:)/i.test(text);
+}
+
+// Our own sign-off is generated, so allow its fixed text through the HTML check.
+const okReply = (html) => safeHtml(String(html || '').replace(SIGN_OFF, '<p>sign-off</p>'));
+
+// Pull the JSON decision out of a Messages API response.
+// Returns { decision } or { problem, retryable }.
 function parseClaude(res) {
-  if (!res || typeof res !== 'object') return { problem: 'no response' };
+  if (!res || typeof res !== 'object') return { problem: 'no response', retryable: true };
   if (res.error) {
     const e = res.error;
-    return { problem: `API error: ${typeof e === 'string' ? e : e.message || JSON.stringify(e).slice(0, 300)}` };
+    const text = typeof e === 'string' ? e : `${e.message || ''} ${e.description || ''} ${JSON.stringify(e).slice(0, 300)}`;
+    const status = Number(e.httpCode || e.status || e.statusCode || (text.match(/\b(408|429|5\d\d)\b/) || [])[1] || 0);
+    const retryable = !status || status === 408 || status === 429 || status >= 500 || /timeout|ETIMEDOUT|ECONNRESET|overloaded|socket hang up/i.test(text);
+    return { problem: `API error: ${(e.message || text).slice(0, 200)}`, retryable };
   }
   if (res.stop_reason === 'refusal') return { problem: 'Claude declined to answer (refusal)' };
   if (res.stop_reason === 'max_tokens') return { problem: 'reply was cut off (max_tokens)' };
@@ -59,6 +77,10 @@ const STAY_SILENT = ['spam_or_marketing', 'automated_notice'];
 
 // Apply the hard rules on top of Claude's choice. Returns the final plan.
 function plan(ctx, parsed) {
+  const internal = ctx.senderIsStaff || (cfg.alwaysHoldSenders || []).map((s) => s.toLowerCase()).includes(ctx.from);
+  // A website form's From is a relay; only the Reply-To person should hear back.
+  const allowReplyAll = !(ctx.replyTo || []).length;
+
   if (parsed.problem) {
     return {
       action: 'hold',
@@ -66,15 +88,17 @@ function plan(ctx, parsed) {
       full: '',
       holding: templateHolding(ctx),
       replyAll: false,
-      summary: `Automatic drafting failed (${parsed.problem}). A holding reply was sent; please answer personally.`,
+      internal,
+      summary: `Automatic drafting failed (${parsed.problem}). Please answer personally.`,
       category: 'other',
     };
   }
 
   const d = parsed.decision;
   const why = [];
-  const replyAll = d.reply_mode === 'reply_all';
-  const base = { replyAll, summary: d.summary_for_joel || '', category: d.category };
+  const flags = d.risk_flags || [];
+  const missing = d.missing_facts || [];
+  const base = { replyAll: allowReplyAll && d.reply_mode === 'reply_all', summary: d.summary_for_joel || '', category: d.category, internal };
 
   if (d.action === 'ignore') {
     if (STAY_SILENT.includes(d.category) || d.confidence >= 0.8) {
@@ -83,29 +107,36 @@ function plan(ctx, parsed) {
     why.push(`Claude chose ignore at low confidence (${d.confidence}); holding instead`);
   }
 
-  const flags = d.risk_flags || [];
-  const missing = d.missing_facts || [];
   if (d.action === 'send') {
     if (!(d.confidence >= cfg.autoSendMinConfidence)) why.push(`confidence ${d.confidence} < ${cfg.autoSendMinConfidence}`);
     if (!(cfg.autoSendCategories || []).includes(d.category)) why.push(`category ${d.category} is not auto-send`);
     if (missing.length) why.push(`missing facts: ${missing.join('; ')}`);
     if (flags.length) why.push(`risk flags: ${flags.join(', ')}`);
     if (ctx.senderIsStaff) why.push('sender is Club staff');
-    if ((cfg.alwaysHoldSenders || []).map((s) => s.toLowerCase()).includes(ctx.from)) why.push('sender is on alwaysHoldSenders');
+    else if (internal) why.push('sender is on alwaysHoldSenders');
     if (!d.reply_html || d.reply_html.length < 40) why.push('reply is empty');
-    if (d.reply_html && d.reply_html.length > 12000) why.push('reply is unusually long');
+    if (d.reply_html && d.reply_html.length > 6000) why.push('reply is unusually long');
     if (d.reply_html && !d.reply_html.includes('Office of the Secretary')) why.push('reply lacks the sign-off');
-    if (/<(script|style|img|iframe|form|a\s)/i.test(d.reply_html || '')) why.push('reply contains disallowed HTML');
+    if (d.reply_html && !okReply(d.reply_html)) why.push('reply has HTML other than paragraphs, or a link');
     if (!why.length) return { ...base, action: 'send', why: ['all auto-send checks passed'], full: d.reply_html };
   } else if (d.action === 'hold') {
-    why.push(...(missing.length ? [`missing facts: ${missing.join('; ')}`] : []), ...(flags.length ? [`risk flags: ${flags.join(', ')}`] : []));
+    if (missing.length) why.push(`missing facts: ${missing.join('; ')}`);
+    if (flags.length) why.push(`risk flags: ${flags.join(', ')}`);
     if (!why.length) why.push('Claude chose to hold');
   }
 
-  const holding = d.holding_reply_html && d.holding_reply_html.length >= 40 && !/<(script|style|img|iframe|form)/i.test(d.holding_reply_html)
-    ? d.holding_reply_html
-    : templateHolding(ctx);
-  return { ...base, action: 'hold', why, full: d.reply_html || '', holding };
+  // Claude's holding reply goes out unread, so it must pass the same checks as
+  // an auto-sent reply. For anything flagged risky, send the fixed template.
+  const h = d.holding_reply_html || '';
+  const useClaudes = !flags.length && h.length >= 40 && h.length <= 2000 && h.includes('Office of the Secretary') && okReply(h);
+  return {
+    ...base,
+    action: 'hold',
+    why,
+    full: d.reply_html || '',
+    holding: useClaudes ? h : templateHolding(ctx),
+    holdingReplyAll: useClaudes && base.replyAll,
+  };
 }
 
 function shadowNote(text) {
@@ -116,22 +147,40 @@ const jobs = [];
 const items = $input.all();
 for (let i = 0; i < items.length; i += 1) {
   const ctx = $('Build Claude Request').itemMatching(i).json;
-  const paired = { pairedItem: { item: i } };
-  const keep = (ctx.categories || []).filter((c) => c !== C.processing);
-  const finalize = (category, flag) => ({ categories: [...keep, category], flag: Boolean(flag) });
+  const keep = (ctx.categories || []).filter((c) => c !== C.processing && c !== C.retry);
+  const tags = (category, flag) => ({ categories: [...keep, category], flag: Boolean(flag) });
+  const failTag = tags(C.held, true);
   const job = (fields) =>
-    jobs.push({ json: { messageId: ctx.id, subject: ctx.subject, replyTo: ctx.replyTo || [], ...fields }, ...paired });
+    jobs.push({
+      json: { messageId: ctx.id, subject: ctx.subject, replyTo: ctx.replyTo || [], failTag, ...fields },
+      pairedItem: { item: i },
+    });
 
-  if (ctx.alreadyReplied) {
-    job({ kind: 'finalize', finalize: finalize(live ? C.replied : C.shadow, false), why: ['a reply was already sent'] });
+  // A recovery run (an earlier run died part way) must never reply twice.
+  if (ctx.recovery && (!ctx.threadKnown || ctx.alreadyReplied)) {
+    const why = ctx.alreadyReplied
+      ? 'an earlier run failed after a reply went out; check that the sender got a full answer'
+      : 'an earlier run failed and the thread could not be read; a reply may already have gone out';
+    if (live && (cfg.notifyOnHold || []).length) {
+      job({ kind: 'notify', to: cfg.notifyOnHold, noticeSubject: `Check: ${ctx.subject || '(no subject)'}`, noticeHtml: `<p>${esc(why)}.</p>${ctx.webLink ? `<p><a href="${esc(ctx.webLink)}">Open the email in Outlook</a></p>` : ''}` });
+    }
+    job({ kind: 'finalize', finalize: tags(live ? C.held : C.shadow, live), log: { why: [why] } });
     continue;
   }
 
-  const p = plan(ctx, parseClaude(items[i].json));
+  const parsed = parseClaude(items[i].json);
+  // A passing API problem: hand the email back for the next run (about a minute
+  // away) to try once more, instead of sending a holding reply straight away.
+  if (parsed.retryable && !ctx.retried) {
+    job({ kind: 'finalize', finalize: { categories: [...keep, C.retry], flag: false }, log: { why: [`will retry: ${parsed.problem}`] } });
+    continue;
+  }
+
+  const p = plan(ctx, parsed);
   const log = { action: p.action, category: p.category, why: p.why, mode: cfg.mode };
 
   if (p.action === 'ignore') {
-    job({ kind: 'finalize', finalize: finalize(C.skipped, false), log });
+    job({ kind: 'finalize', finalize: tags(C.skipped, false), log });
     continue;
   }
 
@@ -141,13 +190,14 @@ for (let i = 0; i < items.length; i += 1) {
       replyAll: p.replyAll,
       html: live ? p.full : shadowNote('would SEND this reply automatically') + p.full,
       send: live,
-      finalize: finalize(live ? C.replied : C.shadow, false),
+      finalize: tags(live ? C.replied : C.shadow, false),
       log,
     });
     continue;
   }
 
-  // Hold: save Claude's full draft for Joel, send a short holding reply now.
+  // Hold: save Claude's full draft for Joel, and (except for internal mail)
+  // send a short holding reply now.
   const reasons = p.why.join('; ');
   if (p.full) {
     job({
@@ -168,16 +218,20 @@ for (let i = 0; i < items.length; i += 1) {
         `<p><b>From:</b> ${esc(ctx.fromName)} &lt;${esc(ctx.from)}&gt;<br><b>Subject:</b> ${esc(ctx.subject)}</p>` +
         `<p>${esc(p.summary)}</p><p><b>Why it was held:</b> ${esc(reasons)}</p>` +
         (ctx.webLink ? `<p><a href="${esc(ctx.webLink)}">Open the email in Outlook</a></p>` : ''),
-      finalize: null,
       log,
     });
   }
+  if (p.internal) {
+    // Staff and internal handoffs: no "Joel will follow up" note to Joel's own colleagues.
+    job({ kind: 'finalize', finalize: tags(live ? C.held : C.shadow, live), log });
+    continue;
+  }
   job({
     kind: 'reply',
-    replyAll: p.replyAll,
+    replyAll: Boolean(p.holdingReplyAll),
     html: live ? p.holding : shadowNote(`would HOLD for Joel (${reasons}) and send this holding reply`) + p.holding,
     send: live,
-    finalize: finalize(live ? C.held : C.shadow, live),
+    finalize: tags(live ? C.held : C.shadow, live),
     log,
   });
 }
