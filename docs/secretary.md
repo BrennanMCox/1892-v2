@@ -70,7 +70,7 @@ Claude may only state facts written in `n8n/knowledge/club.md`. If a reply would
 | `schedule.afterHours` | The rest of the day: `pollMinutes` (60 means on the hour) and `replyWithinMinutes`. |
 | `model`, `effort`, `maxTokens` | The Claude model and how hard it thinks. |
 | `autoSendMinConfidence`, `autoSendCategories` | When a reply may go out unreviewed (see above). |
-| `staffDomains`, `alwaysHoldSenders` | Senders that are always held for review, with no auto-reply: Club and Thoreau Capital addresses, and the former Secretary's addresses. |
+| `staffDomains`, `alwaysHoldSenders` | Senders that are always held for review, with no auto-reply: Club and Thoreau Capital addresses, and the former Secretary's address. |
 | `notifyOnHold` | Addresses to email a short notice whenever something is held. Empty means none. |
 | `categories` | The Outlook category names it uses. |
 
