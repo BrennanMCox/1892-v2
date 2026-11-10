@@ -4,6 +4,12 @@
 
 ## 1. Export
 
+### Easiest: the export workflow in n8n
+
+The deploy also puts **Secretary Inbox Export** in the n8n folder. Open it and click **Execute workflow**. It reads the last 90 days of the secretary@ Inbox and Sent Items and saves them as `.json` attachments on one or more drafts named "Secretary export 1 of N" in secretary@'s **Drafts** folder. It sends nothing, changes no existing email, and keeps no copy in n8n's execution history. Download the attachments, give them to the replay, then delete the drafts.
+
+### Or from Outlook
+
 Export the secretary@ **Inbox** and **Sent Items** for the period you want (2–3 months is plenty) as `.eml` files, or as `.mbox`. Sent Items lets the report show Joel's real reply, and how long it took, next to each email.
 
 - **Outlook for Mac:** select the emails (Cmd+A for all), drag them onto a folder in Finder.
@@ -16,6 +22,12 @@ These are members' private emails. Keep them out of the repository: `.gitignore`
 
 ```bash
 node scripts/replay.mjs path/to/exported-folder --since 2026-09-01
+```
+
+The folder can hold `.json` files from the export workflow, `.eml` files and `.mbox` files.
+
+```bash
+node scripts/replay.mjs path/to/exported-folder --limit 20
 ```
 
 - Without `ANTHROPIC_API_KEY` it only sorts the emails (real person or automated) and saves the Claude requests. That's free.

@@ -25,7 +25,7 @@ GitHub is the source of truth. Edits made inside n8n are overwritten on the next
 
 ### 2. In GitHub
 
-Go to **Settings → Environments → New environment** and name it `n8n`. You can require a reviewer there if you want to approve each deploy. Add these environment secrets:
+Go to the repository's **Settings → Secrets and variables → Actions → New repository secret** and add the two secrets below. (If you'd rather approve each deploy, put them instead under **Settings → Environments → n8n**, with a required reviewer.)
 
 | Secret | Value |
 |---|---|

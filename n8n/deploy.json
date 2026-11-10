@@ -4,7 +4,8 @@
   "projectId": "bOu56IjitdBKxtyH",
   "folderId": "Dnl9ZPPNrgmyPU0B",
   "workflows": {
-    "secretary-inbox": { "active": false }
+    "secretary-inbox": { "active": false },
+    "secretary-export": { "active": false }
   },
   "credentials": {
     "microsoftOutlookOAuth2Api": { "name": "1892 Secretary Outlook", "id": "" },

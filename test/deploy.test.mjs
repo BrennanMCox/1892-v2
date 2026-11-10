@@ -4,7 +4,9 @@ import { buildAll } from '../scripts/lib/build.mjs';
 import { deployAll, nodeId } from '../scripts/lib/deploy.mjs';
 import { N8nClient } from '../scripts/lib/n8n-client.mjs';
 
-const built = await buildAll();
+// Most tests deploy just the Secretary Inbox; the last one deploys everything.
+const everything = await buildAll();
+const built = everything.filter((b) => b.meta.key === 'secretary-inbox');
 
 // A tiny in-memory n8n public API.
 function fakeN8n({ noFolders = false, projectsForbidden = false, projects = [{ id: 'p1', name: '1892' }], credentials = [], workflows = [], v1 = false, noCredList = false, noProjectIdOnCreate = false } = {}) {
@@ -194,6 +196,15 @@ describe('deploy', () => {
     await deployAll(built, { client: n8n.client, deployConfig: cfg(), dryRun: true, log: quiet });
     assert.equal(n8n.state.workflows.length, 0);
     assert.ok(n8n.state.calls.every((c) => c.startsWith('GET')));
+  });
+
+  test('deploys every workflow in n8n/workflows, each into the folder', async () => {
+    const n8n = fakeN8n({ credentials: [{ id: 'c1', name: 'Outlook', type: 'microsoftOutlookOAuth2Api' }] });
+    const results = await deployAll(everything, { client: n8n.client, deployConfig: cfg({ projectId: 'p1', folderId: 'fD' }), log: quiet });
+    assert.deepEqual(results.map((r) => r.key).sort(), ['secretary-export', 'secretary-inbox']);
+    assert.deepEqual(n8n.state.workflows.map((w) => w.parentFolderId), ['fD', 'fD']);
+    const exp = results.find((r) => r.key === 'secretary-export');
+    assert.deepEqual(exp.missing, [], 'the export only needs the Outlook credential');
   });
 
   test('node ids are stable UUIDs', () => {

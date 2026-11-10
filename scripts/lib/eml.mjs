@@ -164,6 +164,31 @@ export function parseEml(raw, fallbackId = '') {
   };
 }
 
+// A message from Graph (the Secretary Inbox Export workflow) -> the same shape
+// parseEml produces.
+export function fromGraph(m) {
+  const header = (name) => (m.internetMessageHeaders || []).find((h) => h.name.toLowerCase() === name)?.value || '';
+  const content = m.body?.content || '';
+  const isHtml = String(m.body?.contentType).toLowerCase() === 'html';
+  return {
+    ...m,
+    id: m.internetMessageId?.toLowerCase() || m.id,
+    graphConversationId: m.conversationId,
+    inReplyTo: ids(header('in-reply-to')),
+    references: ids(header('references')),
+    sentDateTime: m.sentDateTime || m.receivedDateTime,
+    lastModifiedDateTime: m.receivedDateTime,
+    categories: [],
+    isDraft: false,
+    webLink: '',
+    replyTo: m.replyTo || [],
+    toRecipients: m.toRecipients || [],
+    ccRecipients: m.ccRecipients || [],
+    body: { contentType: isHtml ? 'html' : 'text', content },
+    bodyPreview: (isHtml ? content.replace(/<[^>]+>/g, ' ') : content).replace(/\s+/g, ' ').trim().slice(0, 255),
+  };
+}
+
 // Splits an mbox file into raw messages.
 export function splitMbox(text) {
   return text
@@ -186,7 +211,11 @@ export function loadMessages(path) {
   for (const f of files) {
     const ext = extname(f).toLowerCase();
     if (ext === '.eml') messages.push(parseEml(readFileSync(f), f));
-    else if (ext === '.mbox' || ext === '.mbx') {
+    else if (ext === '.json') {
+      const data = JSON.parse(readFileSync(f, 'utf8'));
+      if (data?.format === 'graph-messages') messages.push(...data.messages.map(fromGraph));
+      else skipped.push(f);
+    } else if (ext === '.mbox' || ext === '.mbx') {
       splitMbox(readFileSync(f).toString('latin1')).forEach((raw, i) => messages.push(parseEml(raw, `${f}#${i}`)));
     } else skipped.push(f);
   }
@@ -217,6 +246,7 @@ export function threadMessages(messages) {
   for (const m of byDate) {
     union(m.id, m.id);
     for (const r of [...m.inReplyTo, ...m.references]) union(m.id, r);
+    if (m.graphConversationId) union(m.id, `conv:${m.graphConversationId}`);
     // Subject only links a reply that lost its threading headers to the latest
     // earlier message with the same subject; two separate "Reservation" emails
     // stay separate threads.
