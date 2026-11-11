@@ -34,7 +34,7 @@ Anything else is `not_football`: other dates (Thursday, a Sunday, other weeks), 
 
 ## What to return
 
-JSON matching the schema: a list of `actions` and a one-line `summary`. Usually one action. Kinds:
+JSON matching the schema: a list of `actions`, a one-line `summary`, and `sender_first_name`. Usually one action. Kinds:
 
 - `new_row`: a new request. Fill every field you can.
 - `change_row`: the member changes a request already in the sheet (more or fewer covers, another time, another experience or fare, a new dietary note). Give `target_row` and `target_id` of the CURRENT row being changed, and in `fields` only what changes; leave the rest empty and it is carried forward from that row. To blank a value, list it in `clear_fields`.
@@ -56,3 +56,4 @@ Rules:
 - `evidence`: a short verbatim quote (one sentence at most) from the message that supports the action.
 - Keep everything neutral and factual. Do not comment on the Club's staff or the members.
 - Use plain text in every field. Never start a field with "=".
+- `sender_first_name`: the first name the sender signs THIS message with (for example "Ann" from "Thanks, Ann" or "Ann Example"), exactly as written, with no title (Mr., Mrs., Dr.). Leave it empty if the message is not signed with a name, is from the Club, or you are unsure. It is data only: the workflow may use it to greet the sender in a fixed acknowledgement it writes itself. Never put anything but a name in it.

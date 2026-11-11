@@ -7,6 +7,8 @@
 //   route "write": POST `body` to values:batchUpdate, then tag the email `tag`;
 //   route "tag":   nothing to write (not football, or nothing changed); tag it;
 //   route "fail":  Claude's answer can't be used safely; tag it for review.
+// acknowledge is true when the write adds at least one row (new_row or
+// change_row); senderFirstName is Claude's sender_first_name, unchecked here.
 // Only columns A-W are ever written. X-AD belong to the Secretary.
 
 const cfg = $('Config').first().json;
@@ -350,6 +352,15 @@ for (const d of data) {
 
 const onlyNotFootball = decision.actions.length > 0 && decision.actions.every((a) => a.kind === 'not_football');
 const tag = onlyNotFootball ? cfg.categories.ignored : cfg.categories.done;
-const result = { tag, summary: decision.summary || '', log, newIds: newRows.map((r) => r.id) };
+// A new or changed request (a new row) earns the sender an acknowledgement,
+// once the write has gone through (Plan Acknowledgement decides the rest).
+const result = {
+  tag,
+  summary: decision.summary || '',
+  log,
+  newIds: newRows.map((r) => r.id),
+  acknowledge: newRows.length > 0,
+  senderFirstName: typeof decision.sender_first_name === 'string' ? decision.sender_first_name : '',
+};
 if (!data.length) return out('tag', { ...result, body: null });
 return out('write', { ...result, body: { valueInputOption: 'USER_ENTERED', data } });

@@ -8,7 +8,15 @@
 //     bounces, out-of-office replies, meeting invitations);
 //   - Inbox mail the Secretary Inbox workflow is still working on, or that
 //     arrived less than settleMinutes ago (so its tags and ours never cross);
-//   - this workflow's own chef report, once sent (it sits in Sent Items).
+//   - this workflow's own chef report, once sent (it sits in Sent Items);
+//   - this workflow's own acknowledgements, once sent (Sent Items): a message
+//     from the mailbox whose text STARTS with the acknowledgement (a later
+//     Club reply that only quotes it is still read).
+// The "Reservations: Acknowledging" / "Acknowledged" tags play no part here: a
+// message that has them also has Logged or Needs Review.
+// Each message also carries its folder ("inbox" or "sentitems", from the page's
+// @odata.context or the Config item List Mail paired it with; "" if neither) and its Reply-To addresses, for the
+// acknowledgement (Plan Acknowledgement).
 
 const cfg = $('Config').first().json;
 const C = cfg.categories;
@@ -25,6 +33,16 @@ function isChefReport(m) {
   return to.length > 0 && to.every((a) => chefPeople.has(a));
 }
 
+const squash = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+const ack = cfg.acknowledgement || {};
+const ackOpening = squash(String(ack.greeting || '').split('{name}')[0]);
+const ackFirst = squash(String((ack.paragraphs || [])[0] || '').split('{phone}').join(ack.phone || ''));
+function isOwnAcknowledgement(m) {
+  if (!ackOpening || !ackFirst) return false;
+  const text = squash(m.body?.content || m.bodyPreview || '');
+  return text.startsWith(ackOpening) && text.slice(0, 120 + ackFirst.length).includes(ackFirst);
+}
+
 function automatedReason(m, from) {
   if (!from) return 'no sender';
   if (/eventMessage|calendarSharingMessage/i.test(String(m['@odata.type'] || ''))) return 'meeting invitation';
@@ -36,7 +54,22 @@ function automatedReason(m, from) {
   return '';
 }
 
-const messages = $input.all().flatMap((i) => i.json.value || []);
+// The folder a page of List Mail came from: as Graph names it in @odata.context,
+// else the folder of the Config item that List Mail paired the page with.
+// '' when neither says (Plan Acknowledgement then never acknowledges it).
+const FOLDERS = ['inbox', 'sentitems'];
+const folderOf = (page, index) => {
+  const ctx = String(page['@odata.context'] || '');
+  if (/mailFolders\('sentitems'\)/i.test(ctx)) return 'sentitems';
+  if (/mailFolders\('inbox'\)/i.test(ctx)) return 'inbox';
+  try {
+    const paired = String($('Config').itemMatching(index)?.json?.folder || '').toLowerCase();
+    return FOLDERS.includes(paired) ? paired : '';
+  } catch (e) {
+    return '';
+  }
+};
+const messages = $input.all().flatMap((i, index) => (i.json.value || []).map((m) => (m ? { ...m, folder: folderOf(i.json, index) } : m)));
 const seen = new Set();
 const keep = [];
 for (const m of messages) {
@@ -49,7 +82,7 @@ for (const m of messages) {
   if (cats.some((c) => OURS.includes(c))) continue;
   const from = String(m.from?.emailAddress?.address || '').toLowerCase();
   const fromClub = Boolean(mailbox) && from === mailbox;
-  if (fromClub && isChefReport(m)) continue;
+  if (fromClub && (isChefReport(m) || isOwnAcknowledgement(m))) continue;
   if (!fromClub) {
     if (automatedReason(m, from)) continue;
     if (cats.some((c) => inProgress.some((p) => String(c).startsWith(p)))) continue;
@@ -71,6 +104,8 @@ return keep.slice(0, cfg.maxPerRun).map(({ m, from, fromClub }) => ({
     from,
     fromName: m.from?.emailAddress?.name || '',
     fromClub,
+    folder: m.folder || '',
+    replyTo: (m.replyTo || []).map((r) => String(r?.emailAddress?.address || '').trim().toLowerCase()).filter(Boolean),
     toRecipients: m.toRecipients || [],
     ccRecipients: m.ccRecipients || [],
     receivedDateTime: m.receivedDateTime,

@@ -1,6 +1,7 @@
 // Builds the "Football Reservations" n8n workflow.
 //
-// In one breath: every 15 minutes, while a football weekend is open, it lists
+// In one breath: every 15 minutes (every 5 minutes on the Wednesday to
+// Saturday of a football weekend), while a football weekend is open, it lists
 // recent secretary@ mail (Inbox and Sent Items), skips what it has already
 // tagged and anything automated, then takes the messages one at a time: reads
 // the thread and the Requests tab fresh, asks Claude how the sheet should
@@ -13,17 +14,28 @@
 // fails, between the two, the email is left for a person instead of being read
 // (and written) a second time.
 //
+// After a write that adds a row (a new or changed request), it replies to the
+// member who wrote, in the same thread and to that one address only, with a
+// fixed acknowledgement ("This request has been added to the queue ..."),
+// with nothing quoted below it. The
+// email is tagged "Reservations: Acknowledging" before the reply is created and
+// that tag is swapped for "Reservations: Acknowledged" after the send, so it is
+// never acknowledged twice. If any acknowledgement step fails, the email is
+// tagged "Logged" (the write stands) plus "Needs Review", so a person can send
+// it by hand; it is never written to the sheet again.
+//
 // A second trigger, on Wednesday mornings, drafts (or sends) the chef's covers
 // report for the weekend that starts two days later.
 //
-// It never emails members, and never writes columns X-AD (the Secretary's).
+// The acknowledgement is the only email it sends a member. It never writes
+// columns X-AD (the Secretary's).
 // The node logic lives in ./code/*.js so it can be read and tested on its own.
 
 export const meta = {
   key: 'football-reservations',
   name: 'Football Reservations',
   description:
-    'Keeps the "1892 Football Weekend Reservations" Google Sheet up to date from email to secretary@1892club.com, and emails the Wednesday covers report to the Chef. Never emails members. Managed in GitHub (n8n/workflows/football-reservations): edits made in n8n are overwritten on the next deploy.',
+    'Keeps the "1892 Football Weekend Reservations" Google Sheet up to date from email to secretary@1892club.com, replies to each new or changed request with a fixed acknowledgement, and emails the Wednesday covers report to the Chef. Managed in GitHub (n8n/workflows/football-reservations): edits made in n8n are overwritten on the next deploy.',
 };
 
 const OUTLOOK = 'microsoftOutlookOAuth2Api';
@@ -48,6 +60,51 @@ export function mailCron(schedule) {
   return `${minutes.join(',')} * * * *`;
 }
 
+// The game days of a weekend: Wednesday (Friday minus 2) to Saturday, as
+// YYYY-MM-DD dates (Eastern; the workflow's crons run in its time zone).
+export function gameDayDates(weekend) {
+  const [y, m, d] = weekend.friday.split('-').map(Number);
+  const days = [];
+  for (let i = -2; i <= 1; i += 1) days.push(new Date(Date.UTC(y, m - 1, d + i)).toISOString().slice(0, 10));
+  return days;
+}
+
+// Crons for the game-day check: every gameDays.pollMinutes, starting at
+// gameDays.atMinute, all day, on the game days of each weekend only. One cron
+// per weekend, or two when its game days cross the end of a month. Cron has
+// no year: a past weekend's cron would fire again on the same dates a year
+// later, where Config stops the run (it is not a game day then).
+export function gameDayCrons(weekends, gameDays) {
+  const minutes = mailCron({ everyMinutes: gameDays.pollMinutes, atMinute: gameDays.atMinute ?? 0 }).split(' ')[0];
+  const crons = [];
+  for (const w of weekends) {
+    const byMonth = new Map();
+    for (const day of gameDayDates(w)) {
+      const [, mo, d] = day.split('-').map(Number);
+      if (!byMonth.has(mo)) byMonth.set(mo, []);
+      byMonth.get(mo).push(d);
+    }
+    for (const [mo, ds] of byMonth) {
+      const days = ds.length === 1 ? `${ds[0]}` : `${ds[0]}-${ds[ds.length - 1]}`;
+      const cron = `${minutes} * ${days} ${mo} *`;
+      if (!crons.includes(cron)) crons.push(cron);
+    }
+  }
+  return crons;
+}
+
+// The Claude call's time limit. It is not retried, so a slow Claude call alone
+// cannot push the last message of a run (started just before runBudgetMinutes)
+// past executionTimeout.
+export const CLAUDE_TIMEOUT_SECONDS = 120;
+// Room in executionTimeout for the other Outlook and Sheets calls of the last
+// message when they answer normally (each is a second or two). This is NOT a
+// worst case: each of those calls may take 30 s and most retry (3 tries), so a
+// run with a slow Outlook or Sheets can reach executionTimeout. What keeps runs
+// from overlapping is n8n's hard stop at executionTimeout (checked below to be
+// under the check interval); this budget only makes that stop rare.
+const TYPICAL_OTHER_CALLS_SECONDS = 30;
+
 // Cron for the chef report: Wednesdays at chefReport.hour.
 export function chefCron(report) {
   if (!(Number.isInteger(report.hour) && report.hour >= 0 && report.hour < 24)) throw new Error('chefReport.hour must be 0-23');
@@ -59,14 +116,54 @@ export function build({ code, readJson, readText }) {
   const systemPrompt = readText('n8n/prompts/football-system.md').trim();
   const actionsSchema = readJson(`${DIR}/actions-schema.json`);
   if (!['draft', 'send'].includes(config.chefReport?.mode)) throw new Error('chefReport.mode must be "draft" or "send"');
-  if (!(Number.isInteger(config.runBudgetMinutes) && config.runBudgetMinutes >= 1 && config.runBudgetMinutes * 60 + 600 < config.schedule.everyMinutes * 60)) {
-    throw new Error('runBudgetMinutes plus 10 minutes for the last message must stay under schedule.everyMinutes');
+  const gd = config.gameDays;
+  if (!gd || !(Number.isInteger(gd.pollMinutes) && gd.pollMinutes > 0 && gd.pollMinutes <= 60 && 60 % gd.pollMinutes === 0)) {
+    throw new Error('gameDays.pollMinutes must divide an hour evenly (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60)');
+  }
+  if (!(Number.isInteger(gd.atMinute ?? 0) && (gd.atMinute ?? 0) >= 0 && (gd.atMinute ?? 0) < gd.pollMinutes)) {
+    throw new Error('gameDays.atMinute must be a whole number below gameDays.pollMinutes');
+  }
+  if (!(Number.isInteger(gd.settleMinutes) && gd.settleMinutes >= 0) || !(Number.isInteger(config.settleMinutes) && config.settleMinutes >= 0)) {
+    throw new Error('settleMinutes and gameDays.settleMinutes must be whole numbers of minutes');
+  }
+  // Config tells the two triggers apart by minute if n8n cannot say which ran.
+  const regularMinutes = mailCron(config.schedule).split(' ')[0].split(',');
+  const gameMinutes = mailCron({ everyMinutes: gd.pollMinutes, atMinute: gd.atMinute ?? 0 }).split(' ')[0].split(',');
+  if (regularMinutes.some((m) => gameMinutes.includes(m))) {
+    throw new Error('gameDays.atMinute: the game-day check must not fire on the same minutes as the regular check');
+  }
+  const timeout = config.executionTimeoutSeconds;
+  const shortestGap = Math.min(gd.pollMinutes, config.schedule.everyMinutes) * 60;
+  if (!(Number.isInteger(timeout) && timeout > 0 && timeout < shortestGap)) {
+    throw new Error(`executionTimeoutSeconds must stay under the shortest check interval (${shortestGap} s), so two runs never overlap`);
+  }
+  if (!(Number.isInteger(config.runBudgetMinutes) && config.runBudgetMinutes >= 1 && config.runBudgetMinutes * 60 + CLAUDE_TIMEOUT_SECONDS + TYPICAL_OTHER_CALLS_SECONDS <= timeout)) {
+    throw new Error(
+      `runBudgetMinutes plus ${CLAUDE_TIMEOUT_SECONDS + TYPICAL_OTHER_CALLS_SECONDS} s for the last message (Claude ${CLAUDE_TIMEOUT_SECONDS} s, other calls typically ${TYPICAL_OTHER_CALLS_SECONDS} s) must fit in executionTimeoutSeconds`,
+    );
   }
   for (const w of config.weekends) {
     if (!/^[A-Z]+$/.test(w.prefix)) throw new Error(`weekend ${w.name}: prefix must be capital letters`);
     if (new Date(`${w.friday}T12:00:00Z`).getUTCDay() !== 5) throw new Error(`weekend ${w.name}: friday ${w.friday} is not a Friday`);
     if (new Date(`${w.saturday}T12:00:00Z`).getUTCDay() !== 6) throw new Error(`weekend ${w.name}: saturday ${w.saturday} is not a Saturday`);
     if (Number.isNaN(Date.parse(w.deadline))) throw new Error(`weekend ${w.name}: deadline is not a date`);
+  }
+  const cats = config.categories || {};
+  const catNames = ['done', 'ignored', 'failed', 'acknowledging', 'acknowledged'];
+  if (!catNames.every((k) => typeof cats[k] === 'string' && cats[k]) || new Set(catNames.map((k) => cats[k])).size !== catNames.length) {
+    throw new Error(`categories must name five different tags: ${catNames.join(', ')}`);
+  }
+  const ack = config.acknowledgement;
+  if (!ack || typeof ack.enabled !== 'boolean') throw new Error('acknowledgement.enabled must be true or false');
+  if (!(typeof ack.greeting === 'string' && ack.greeting.includes('{name}') && typeof ack.greetingNoName === 'string' && ack.greetingNoName)) {
+    throw new Error('acknowledgement.greeting must contain {name}, and acknowledgement.greetingNoName must be set');
+  }
+  if (!(Array.isArray(ack.paragraphs) && ack.paragraphs.every((p) => typeof p === 'string' && p)) || !(Array.isArray(ack.signoff) && ack.signoff.length)) {
+    throw new Error('acknowledgement.paragraphs and acknowledgement.signoff must be lists of text');
+  }
+  if (ack.paragraphs.some((p) => p.includes('{phone}')) && !(typeof ack.phone === 'string' && ack.phone)) throw new Error('acknowledgement.phone must be set');
+  if (!(Array.isArray(config.staffDomains) && config.staffDomains.every((d) => /^[a-z0-9.-]+\.[a-z]+$/i.test(d)))) {
+    throw new Error('staffDomains must be a list of domains');
   }
 
   const at = (col, row) => [col * 240, row * 200];
@@ -131,14 +228,19 @@ export function build({ code, readJson, readText }) {
   });
   // The email's categories as they are now (a GET of the message), so a tag
   // another workflow or a person added meanwhile is kept when we PATCH.
-  const recheck = (name, position, idExpr) =>
+  const recheck = (name, position, idExpr, onError = 'continueRegularOutput') =>
     graph(name, position, 'GET', `{{ ${CFG}.graphBase }}/messages/{{ ${idExpr} }}`, {
       parameters: { sendQuery: true, queryParameters: { parameters: [{ name: '$select', value: 'id,categories' }] } },
-      onError: 'continueRegularOutput',
+      onError,
     });
   // Categories from the recheck just before (or, if it failed, the given fallback).
   const freshCats = (fallback) => `(Array.isArray($json.categories) ? $json.categories : ${fallback})`;
+  const MSG_ID = "$('Plan Writes').item.json.messageId";
+  // True only on the path through Send Acknowledgement (Plan Acknowledgement
+  // said send, and every acknowledgement step after it went through).
+  const ACK_SENT = "$('Plan Acknowledgement').item.json.send";
 
+  const crons = gameDayCrons(config.weekends, gd);
   const nodes = [
     {
       name: 'Every 15 Minutes',
@@ -147,6 +249,19 @@ export function build({ code, readJson, readText }) {
       position: at(0, 0),
       parameters: { rule: { interval: [{ field: 'cronExpression', expression: mailCron(config.schedule) }] } },
     },
+    // Every gameDays.pollMinutes, Wednesday to Saturday of each football
+    // weekend only. On those days Config stops the 15-minute runs.
+    ...(crons.length
+      ? [
+          {
+            name: 'Game Days',
+            type: 'n8n-nodes-base.scheduleTrigger',
+            typeVersion: 1.2,
+            position: at(0, -1),
+            parameters: { rule: { interval: crons.map((expression) => ({ field: 'cronExpression', expression })) } },
+          },
+        ]
+      : []),
     codeNode('Config', at(1, 0), 'config.js', 'all', { CONFIG: config }),
     graph('List Mail', at(2, 0), 'GET', '{{ $json.listUrl }}', {
       parameters: plainText,
@@ -199,8 +314,9 @@ export function build({ code, readJson, readText }) {
       { onError: 'continueErrorOutput' },
     ),
     {
-      // Asking again is safe (nothing is written yet), so a passing API error
-      // gets one more try; after that the message is tagged for review.
+      // Not retried: one call of up to CLAUDE_TIMEOUT_SECONDS is what fits in
+      // the run's time limit after runBudgetMinutes. A failure tags the
+      // message for review (nothing is written).
       name: 'Ask Claude',
       type: 'n8n-nodes-base.httpRequest',
       typeVersion: 4.2,
@@ -218,12 +334,10 @@ export function build({ code, readJson, readText }) {
           ],
         },
         ...jsonBody('$json.request'),
-        options: { timeout: 180000 },
+        options: { timeout: CLAUDE_TIMEOUT_SECONDS * 1000 },
       },
       credentials: { [ANTHROPIC]: null },
-      retryOnFail: true,
-      maxTries: 2,
-      waitBetweenTries: 5000,
+      retryOnFail: false,
       onError: 'continueErrorOutput',
     },
     // Read again right before writing: new IDs and new rows come from the sheet as it is now.
@@ -246,11 +360,62 @@ export function build({ code, readJson, readText }) {
       onError: 'continueErrorOutput',
     }),
     recheck('Recheck Tags', at(19, 0.5), "$('Plan Writes').item.json.messageId"),
-    // On the write path this also drops the "Needs Review" set by Mark Pending.
-    graph('Tag Message', at(20, 0.5), 'PATCH', `{{ ${CFG}.graphBase }}/messages/{{ $('Plan Writes').item.json.messageId }}`, {
+    // Whether to acknowledge the request (and to whom, with what name).
+    codeNode('Plan Acknowledgement', at(20, 0.5), 'plan-acknowledgement.js', 'each', {}, { onError: 'continueErrorOutput' }),
+    ifTrue('Acknowledge?', at(21, 0.5), '$json.send === true'),
+    // Acknowledgement. Recheck, then tag "Acknowledging" BEFORE anything is created.
+    recheck('Check Tags Before Ack', at(22, -1), MSG_ID, 'continueErrorOutput'),
+    ifTrue(
+      'Still Unacknowledged?',
+      at(23, -1),
+      `Array.isArray($json.categories) && !$json.categories.some((c) => [${CFG}.categories.acknowledging, ${CFG}.categories.acknowledged].includes(c))`,
+    ),
+    graph('Mark Acknowledging', at(24, -1), 'PATCH', `{{ ${CFG}.graphBase }}/messages/{{ ${MSG_ID} }}`, {
+      parameters: jsonBody(`{ categories: [...new Set([...$json.categories, ${CFG}.categories.acknowledging])] }`),
+      onError: 'continueErrorOutput',
+    }),
+    // Never retried: each call creates a draft.
+    graph('Create Acknowledgement', at(25, -1), 'POST', `{{ ${CFG}.graphBase }}/messages/{{ ${MSG_ID} }}/createReply`, {
+      parameters: { sendBody: true, specifyBody: 'json', jsonBody: '{}' },
+      noRetry: true,
+      onError: 'continueErrorOutput',
+    }),
+    codeNode('Build Acknowledgement', at(26, -1), 'build-acknowledgement.js', 'each', {}, { onError: 'continueErrorOutput' }),
+    graph('Fill Acknowledgement', at(27, -1), 'PATCH', `{{ ${CFG}.graphBase }}/messages/{{ $json.draftId }}`, {
+      parameters: jsonBody('$json.patch'),
+      onError: 'continueErrorOutput',
+    }),
+    // The saved draft must go to exactly the one address, with no Cc or Bcc.
+    ifTrue(
+      'Acknowledgement OK?',
+      at(28, -1),
+      "Array.isArray($json.toRecipients) && $json.toRecipients.length === 1 && String($json.toRecipients[0].emailAddress?.address || '').toLowerCase() === $('Build Acknowledgement').item.json.to && !($json.ccRecipients || []).length && !($json.bccRecipients || []).length",
+    ),
+    // Never retried: a send that went through but timed out must not repeat.
+    graph('Send Acknowledgement', at(29, -1), 'POST', `{{ ${CFG}.graphBase }}/messages/{{ $('Build Acknowledgement').item.json.draftId }}/send`, {
+      noRetry: true,
+      onError: 'continueErrorOutput',
+    }),
+    recheck('Recheck Acknowledged Tags', at(30, -1), MSG_ID),
+    // On the write path this also drops the "Needs Review" set by Mark Pending;
+    // after a sent acknowledgement it swaps "Acknowledging" for "Acknowledged".
+    graph('Tag Message', at(31, 0.5), 'PATCH', `{{ ${CFG}.graphBase }}/messages/{{ $('Plan Writes').item.json.messageId }}`, {
       parameters: jsonBody(
-        `{ categories: [...new Set([...${freshCats("$('Plan Writes').item.json.knownCategories")}.filter((c) => $('Plan Writes').item.json.route !== 'write' || c !== ${CFG}.categories.failed), $('Plan Writes').item.json.tag])] }`,
+        `{ categories: [...new Set([...${freshCats("$('Plan Writes').item.json.knownCategories")}.filter((c) => ($('Plan Writes').item.json.route !== 'write' || c !== ${CFG}.categories.failed) && (${ACK_SENT} !== true || c !== ${CFG}.categories.acknowledging)), $('Plan Writes').item.json.tag, ...(${ACK_SENT} === true ? [${CFG}.categories.acknowledged] : [])])] }`,
       ),
+      onError: 'continueRegularOutput',
+    }),
+    // An acknowledgement step failed: the write stands, so "Logged", plus
+    // "Needs Review" for a person to send it by hand. An "Acknowledging" tag
+    // already set stays. Never back to the sheet write.
+    recheck('Recheck Ack Failed Tags', at(30, 1.5), MSG_ID),
+    // Only with categories just read: a stale fallback could drop "Acknowledging"
+    // or another workflow's tag. If the read failed, the email is left as it is,
+    // which still has Mark Pending's "Needs Review" (never read again; a person
+    // checks the rows, sends the acknowledgement and retags it "Logged").
+    ifTrue('Ack Failed Tags Read?', at(31, 1.5), 'Array.isArray($json.categories)'),
+    graph('Tag Ack Failed', at(32, 1.5), 'PATCH', `{{ ${CFG}.graphBase }}/messages/{{ ${MSG_ID} }}`, {
+      parameters: jsonBody(`{ categories: [...new Set([...$json.categories, $('Plan Writes').item.json.tag, ${CFG}.categories.failed])] }`),
       onError: 'continueRegularOutput',
     }),
     recheck('Recheck Failed Tags', at(19, 2.5), "$('Loop Messages').item.json.id"),
@@ -282,9 +447,11 @@ export function build({ code, readJson, readText }) {
   ];
 
   const main = (...targets) => ({ main: targets.map((t) => (t ? t.map((node) => ({ node, type: 'main', index: 0 })) : [])) });
+  const ACK_FAIL = 'Recheck Ack Failed Tags';
 
   const connections = {
     'Every 15 Minutes': main(['Config']),
+    ...(crons.length ? { 'Game Days': main(['Config']) } : {}),
     Config: main(['List Mail']),
     'List Mail': main(['Select Messages']),
     'Select Messages': main(['Load CRM']),
@@ -305,8 +472,24 @@ export function build({ code, readJson, readText }) {
     'Check Tags Before Write': main(['Mark Pending']),
     'Mark Pending': main(['Write Sheet'], ['Recheck Failed Tags']),
     'Write Sheet': main(['Recheck Tags'], ['Recheck Failed Tags']),
-    'Recheck Tags': main(['Tag Message']),
+    'Recheck Tags': main(['Plan Acknowledgement']),
+    // Any acknowledgement failure goes to Tag Ack Failed (Logged + Needs Review).
+    'Plan Acknowledgement': main(['Acknowledge?'], [ACK_FAIL]),
+    'Acknowledge?': main(['Check Tags Before Ack'], ['Tag Message']),
+    'Check Tags Before Ack': main(['Still Unacknowledged?'], [ACK_FAIL]),
+    // Tagged meanwhile: a person checks it rather than a second reply.
+    'Still Unacknowledged?': main(['Mark Acknowledging'], [ACK_FAIL]),
+    'Mark Acknowledging': main(['Create Acknowledgement'], [ACK_FAIL]),
+    'Create Acknowledgement': main(['Build Acknowledgement'], [ACK_FAIL]),
+    'Build Acknowledgement': main(['Fill Acknowledgement'], [ACK_FAIL]),
+    'Fill Acknowledgement': main(['Acknowledgement OK?'], [ACK_FAIL]),
+    'Acknowledgement OK?': main(['Send Acknowledgement'], [ACK_FAIL]),
+    'Send Acknowledgement': main(['Recheck Acknowledged Tags'], [ACK_FAIL]),
+    'Recheck Acknowledged Tags': main(['Tag Message']),
     'Tag Message': main(['Loop Messages']),
+    [ACK_FAIL]: main(['Ack Failed Tags Read?']),
+    'Ack Failed Tags Read?': main(['Tag Ack Failed'], ['Loop Messages']),
+    'Tag Ack Failed': main(['Loop Messages']),
     'Recheck Failed Tags': main(['Tag Failed']),
     'Tag Failed': main(['Loop Messages']),
 
@@ -324,12 +507,14 @@ export function build({ code, readJson, readText }) {
     connections,
     settings: {
       executionOrder: 'v1',
-      // The loop stops taking new messages after runBudgetMinutes; the next
-      // 10 minutes are room for the message in hand (Ask Claude alone can take
-      // 2 x 180 s). Stays under the 15-minute schedule so two runs never
-      // overlap. Should a run still be cut off mid-write, Mark Pending has
-      // already tagged the email for review, so it is never written twice.
-      executionTimeout: config.runBudgetMinutes * 60 + 600,
+      // The hard stop that keeps runs from overlapping: under the game-day
+      // interval (and the 15-minute one). The loop stops taking new messages
+      // after runBudgetMinutes, leaving room for the message in hand (Ask
+      // Claude alone can take CLAUDE_TIMEOUT_SECONDS), so the stop is rare;
+      // slow, retried Outlook or Sheets calls can still reach it. Should a run
+      // be cut off mid-write, Mark Pending has already tagged the email for
+      // review, so it is never written twice.
+      executionTimeout: config.executionTimeoutSeconds,
       timezone: config.timezone,
       // Emails are private: keep failed runs for debugging, not successful ones.
       saveDataErrorExecution: 'all',

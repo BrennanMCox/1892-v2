@@ -15,9 +15,11 @@
   "processReceivedAfter": "2026-11-11T01:25:00Z",
   "lookbackHours": 36,
   "maxPerRun": 15,
-  "runBudgetMinutes": 4,
+  "runBudgetMinutes": 2,
+  "executionTimeoutSeconds": 270,
   "settleMinutes": 20,
   "secretaryInProgressCategories": ["Secretary: Working", "Secretary: Retrying", "Secretary: Run "],
+  "staffDomains": ["1892club.com", "thoreaucapital.com", "theindigoroad.com"],
   "automatedSenders": [
     "^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounces?|notifications?|newsletters?|news|marketing|updates|alerts?)\\b",
     "@(.+\\.)?(opentable\\.com|sevenrooms\\.com|resy\\.com|tock\\.com|mailchimp\\.com|mcsv\\.net|constantcontact\\.com|sendgrid\\.net|hubspot\\.com|squarespace\\.com|microsoft\\.com)$"
@@ -25,6 +27,7 @@
 
   "timezone": "America/New_York",
   "schedule": { "everyMinutes": 15, "atMinute": 8 },
+  "gameDays": { "pollMinutes": 5, "atMinute": 1, "settleMinutes": 5 },
 
   "model": "claude-opus-5-5",
   "effort": "medium",
@@ -33,7 +36,21 @@
   "categories": {
     "done": "Reservations: Logged",
     "ignored": "Reservations: Not Football",
-    "failed": "Reservations: Needs Review"
+    "failed": "Reservations: Needs Review",
+    "acknowledging": "Reservations: Acknowledging",
+    "acknowledged": "Reservations: Acknowledged"
+  },
+
+  "acknowledgement": {
+    "enabled": true,
+    "phone": "+1 (762) 402-7833",
+    "greeting": "Thank you, {name},",
+    "greetingNoName": "Thank you,",
+    "paragraphs": [
+      "This request has been added to the queue. A member of our team will confirm shortly.",
+      "If you need an immediate answer, please call the Club at {phone}."
+    ],
+    "signoff": ["Sincerely,", "/claude"]
   },
 
   "weekends": [

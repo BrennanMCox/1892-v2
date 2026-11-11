@@ -22,6 +22,8 @@ export async function runCode(src, { input = [], nodes = {}, mode = 'all', pair 
       last: () => rows[rows.length - 1],
       all: () => rows,
       itemMatching: (i) => at(i),
+      // A node with data in `nodes` ran in this execution.
+      isExecuted: true,
       get item() {
         return at(index);
       },

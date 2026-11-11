@@ -193,6 +193,10 @@
     },
     "summary": {
       "type": "string"
+    },
+    "sender_first_name": {
+      "type": "string",
+      "description": "The first name the sender signs the message with (e.g. \"Ann\" from \"Thanks, Ann\"); empty if they do not sign with one. Data only."
     }
   }
 }
