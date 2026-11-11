@@ -1,0 +1,198 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "actions",
+    "summary"
+  ],
+  "properties": {
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "target_row",
+          "target_id",
+          "fields",
+          "clear_fields",
+          "needs_check",
+          "needs_check_mode",
+          "evidence"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "new_row",
+              "change_row",
+              "cancel_row",
+              "update_in_place",
+              "not_football"
+            ]
+          },
+          "target_row": {
+            "type": "integer",
+            "description": "Sheet row number of the row to change, cancel or update; 0 for new_row and not_football."
+          },
+          "target_id": {
+            "type": "string",
+            "description": "Request ID of that row (e.g. MIZ-012); empty for new_row and not_football."
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "weekend",
+              "first_name",
+              "last_name",
+              "email",
+              "number",
+              "member_category",
+              "accompanied",
+              "experience",
+              "fare",
+              "covers",
+              "arrival_window",
+              "preference",
+              "dietary_restrictions",
+              "special_requests",
+              "club_reply",
+              "requested_at"
+            ],
+            "properties": {
+              "weekend": {
+                "type": "string"
+              },
+              "first_name": {
+                "type": "string"
+              },
+              "last_name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "number": {
+                "type": "string"
+              },
+              "member_category": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "Gown",
+                  "Town"
+                ]
+              },
+              "accompanied": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "Yes",
+                  "No"
+                ]
+              },
+              "experience": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "Friday Supper",
+                  "Brunch",
+                  "Saturday Supper"
+                ]
+              },
+              "fare": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "Full Fare",
+                  "Light Fare"
+                ]
+              },
+              "covers": {
+                "type": "string",
+                "description": "Whole number of people, or empty if not stated."
+              },
+              "arrival_window": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "10:00 a.m. to 11:00 a.m.",
+                  "11:00 a.m. to 12:00 p.m.",
+                  "12:00 p.m. to 1:00 p.m.",
+                  "1:00 p.m. to 2:00 p.m.",
+                  "5:00 p.m. to 7:30 p.m.",
+                  "7:30 p.m. to 9:00 p.m.",
+                  "9:00 p.m. to 10:30 p.m."
+                ]
+              },
+              "preference": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "Downstairs = Oak Steakhouse",
+                  "Upstairs Bar & High-Tops",
+                  "Upstairs Locker Room"
+                ]
+              },
+              "dietary_restrictions": {
+                "type": "string"
+              },
+              "special_requests": {
+                "type": "string"
+              },
+              "club_reply": {
+                "type": "string"
+              },
+              "requested_at": {
+                "type": "string",
+                "description": "Empty (use the message time) unless the request was clearly made at another time: then YYYY-MM-DD HH:MM Eastern."
+              }
+            }
+          },
+          "clear_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "weekend",
+                "first_name",
+                "last_name",
+                "email",
+                "number",
+                "member_category",
+                "accompanied",
+                "experience",
+                "fare",
+                "covers",
+                "arrival_window",
+                "preference",
+                "dietary_restrictions",
+                "special_requests",
+                "club_reply",
+                "requested_at"
+              ]
+            }
+          },
+          "needs_check": {
+            "type": "string"
+          },
+          "needs_check_mode": {
+            "type": "string",
+            "enum": [
+              "append",
+              "replace"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string"
+    }
+  }
+}

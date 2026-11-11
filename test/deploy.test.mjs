@@ -201,10 +201,13 @@ describe('deploy', () => {
   test('deploys every workflow in n8n/workflows, each into the folder', async () => {
     const n8n = fakeN8n({ credentials: [{ id: 'c1', name: 'Outlook', type: 'microsoftOutlookOAuth2Api' }] });
     const results = await deployAll(everything, { client: n8n.client, deployConfig: cfg({ projectId: 'p1', folderId: 'fD' }), log: quiet });
-    assert.deepEqual(results.map((r) => r.key).sort(), ['secretary-export', 'secretary-inbox']);
-    assert.deepEqual(n8n.state.workflows.map((w) => w.parentFolderId), ['fD', 'fD']);
+    assert.deepEqual(results.map((r) => r.key).sort(), ['football-reservations', 'secretary-export', 'secretary-inbox']);
+    assert.deepEqual(n8n.state.workflows.map((w) => w.parentFolderId), ['fD', 'fD', 'fD']);
     const exp = results.find((r) => r.key === 'secretary-export');
     assert.deepEqual(exp.missing, [], 'the export only needs the Outlook credential');
+    const football = results.find((r) => r.key === 'football-reservations');
+    assert.ok(football.missing.some((m) => /googleSheetsOAuth2Api/.test(m)), 'football needs the Google Sheets credential');
+    assert.equal(football.state, 'off');
   });
 
   test('n8n without a credential list: asks n8n to bind credentials by name', async () => {

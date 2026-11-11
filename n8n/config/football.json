@@ -1,0 +1,51 @@
+{
+  "$comment": "Settings for the Football Reservations workflow. Every push to GitHub redeploys them. See docs/football.md for what each one does.",
+
+  "mailboxPath": "me",
+  "mailboxAddress": "secretary@1892club.com",
+
+  "spreadsheetId": "1VvYCa11TsnAKYy3ZoMqIf3xignuQgr6a-FErfNkdLtA",
+  "requestsSheet": "Requests",
+  "crm": {
+    "spreadsheetId": "1TfvZ9jh0P2FJtpZarVH7_g-ciniO_cXYVUNDTWPR5yI",
+    "sheet": "Members",
+    "range": "A1:O1000"
+  },
+
+  "processReceivedAfter": "2026-11-11T01:25:00Z",
+  "lookbackHours": 36,
+  "maxPerRun": 15,
+  "runBudgetMinutes": 4,
+  "settleMinutes": 20,
+  "secretaryInProgressCategories": ["Secretary: Working", "Secretary: Retrying", "Secretary: Run "],
+  "automatedSenders": [
+    "^(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounces?|notifications?|newsletters?|news|marketing|updates|alerts?)\\b",
+    "@(.+\\.)?(opentable\\.com|sevenrooms\\.com|resy\\.com|tock\\.com|mailchimp\\.com|mcsv\\.net|constantcontact\\.com|sendgrid\\.net|hubspot\\.com|squarespace\\.com|microsoft\\.com)$"
+  ],
+
+  "timezone": "America/New_York",
+  "schedule": { "everyMinutes": 15, "atMinute": 8 },
+
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "maxTokens": 16000,
+
+  "categories": {
+    "done": "Reservations: Logged",
+    "ignored": "Reservations: Not Football",
+    "failed": "Reservations: Needs Review"
+  },
+
+  "weekends": [
+    { "name": "Missouri", "prefix": "MIZ", "friday": "2026-11-13", "saturday": "2026-11-14", "deadline": "2026-11-11T05:00:00Z" },
+    { "name": "Georgia Tech", "prefix": "GT", "friday": "2026-11-27", "saturday": "2026-11-28", "deadline": "2026-11-25T05:00:00Z" }
+  ],
+
+  "chefReport": {
+    "enabled": true,
+    "mode": "draft",
+    "to": ["acasey@theindigoroad.com"],
+    "cc": ["bcox@thoreaucapital.com"],
+    "hour": 7
+  }
+}

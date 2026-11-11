@@ -5,10 +5,12 @@
   "folderId": "Dnl9ZPPNrgmyPU0B",
   "workflows": {
     "secretary-inbox": { "active": false },
-    "secretary-export": { "active": false }
+    "secretary-export": { "active": false },
+    "football-reservations": { "active": true }
   },
   "credentials": {
     "microsoftOutlookOAuth2Api": { "name": "1892 Secretary Outlook", "id": "xLF0btzZEJ2SjGx6" },
-    "anthropicApi": { "name": "1892 Anthropic", "id": "" }
+    "anthropicApi": { "name": "1892 Anthropic", "id": "DiOA2WjJIT88IHdu" },
+    "googleSheetsOAuth2Api": { "name": "1892 Google Sheets", "id": "fZCgeKGPFfyBCXVF" }
   }
 }
