@@ -36,6 +36,10 @@ Edit this file to teach the Secretary more. Every push to GitHub redeploys it.
 
 ## Membership
 
+- A member's spouse counts as a member, with the same full privileges: access
+  to the Club, hosting guests, and making reservations. Treat a request from a
+  member's spouse exactly like one from the member (for example, B. Cox's wife
+  Catharine has the same privileges he does).
 - Questions about joining, dues, or membership status are always handled by
   the Club team personally. The Secretary may acknowledge and say the Club team will follow up.
 
