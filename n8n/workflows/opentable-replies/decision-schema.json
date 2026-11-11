@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["is_new_booking_request", "party_size", "requested_dates", "football_weekend", "reason"],
+  "properties": {
+    "is_new_booking_request": {
+      "type": "boolean",
+      "description": "True only when the member is asking the Club to book a new dining table for themselves (and their party)."
+    },
+    "party_size": {
+      "anyOf": [{ "type": "integer" }, { "type": "null" }],
+      "description": "Number of people at the table, stated or unambiguous from the people named (\"my wife and I\" = 2). null when not clear."
+    },
+    "requested_dates": {
+      "type": "array",
+      "items": { "type": "string", "format": "date" },
+      "description": "Every date the member asks for, as YYYY-MM-DD, resolved against the email's sent date in Eastern time. Empty if none is given."
+    },
+    "football_weekend": {
+      "type": "boolean",
+      "description": "True when the request is for a football weekend or game day, or for one of the football Fridays or Saturdays listed."
+    },
+    "reason": {
+      "type": "string",
+      "description": "One short sentence explaining the decision."
+    }
+  }
+}

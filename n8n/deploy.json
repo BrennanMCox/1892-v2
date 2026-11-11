@@ -6,7 +6,8 @@
   "workflows": {
     "secretary-inbox": { "active": false },
     "secretary-export": { "active": false },
-    "football-reservations": { "active": true }
+    "football-reservations": { "active": true },
+    "opentable-replies": { "active": true }
   },
   "credentials": {
     "microsoftOutlookOAuth2Api": { "name": "1892 Secretary Outlook", "id": "xLF0btzZEJ2SjGx6" },
