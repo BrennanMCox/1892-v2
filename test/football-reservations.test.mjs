@@ -347,7 +347,8 @@ describe('Plan Writes', () => {
     assert.equal(row[19], 'Yes');
     assert.equal(row[20], '');
     assert.equal(row[21], "'We would love a table");
-    assert.equal(row[22], '=IF(COUNTIFS($C:$C,$C7,$F:$F,$F7,$J:$J,$J7,$K:$K,$K7,$B:$B,">"&$B7)=0,"Current","Superseded")');
+    // A blank criterion cell matches nothing in COUNTIFS, so blanks are matched with "=".
+    assert.equal(row[22], '=IF(COUNTIFS($C:$C,IF($C7="","=",$C7),$F:$F,IF($F7="","=",$F7),$J:$J,IF($J7="","=",$J7),$K:$K,IF($K7="","=",$K7),$B:$B,">"&$B7)=0,"Current","Superseded")');
     assert.equal(r.body.data.length, 1);
   });
 

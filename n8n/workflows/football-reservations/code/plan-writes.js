@@ -329,7 +329,7 @@ const cell = (field, value) => {
   return value;
 };
 const versionFormula = (n) =>
-  `=IF(COUNTIFS($C:$C,$C${n},$F:$F,$F${n},$J:$J,$J${n},$K:$K,$K${n},$B:$B,">"&$B${n})=0,"Current","Superseded")`;
+  `=IF(COUNTIFS(${['C', 'F', 'J', 'K'].map((c) => `$${c}:$${c},IF($${c}${n}="","=",$${c}${n})`).join(',')},$B:$B,">"&$B${n})=0,"Current","Superseded")`;
 
 const data = [];
 for (const r of newRows) {
