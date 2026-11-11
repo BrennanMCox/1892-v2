@@ -23,7 +23,7 @@ export const meta = {
   key: 'football-reservations',
   name: 'Football Reservations',
   description:
-    'Keeps the "1892 Football Weekend Reservations" Google Sheet up to date from email to secretary@1892club.com, and drafts the Wednesday covers report for the Chef. Never emails members. Managed in GitHub (n8n/workflows/football-reservations): edits made in n8n are overwritten on the next deploy.',
+    'Keeps the "1892 Football Weekend Reservations" Google Sheet up to date from email to secretary@1892club.com, and emails the Wednesday covers report to the Chef. Never emails members. Managed in GitHub (n8n/workflows/football-reservations): edits made in n8n are overwritten on the next deploy.',
 };
 
 const OUTLOOK = 'microsoftOutlookOAuth2Api';

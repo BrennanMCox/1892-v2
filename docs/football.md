@@ -1,6 +1,6 @@
 # Football Reservations
 
-Keeps the Google Sheet **1892 Football Weekend Reservations** (tab **Requests**) up to date from email to **secretary@1892club.com**, the way it has been kept by hand, and drafts the Chef's covers report on the Wednesday morning before each football weekend. It runs in the background in n8n. **It never emails members.**
+Keeps the Google Sheet **1892 Football Weekend Reservations** (tab **Requests**) up to date from email to **secretary@1892club.com**, the way it has been kept by hand, and emails the Chef's covers report on the Wednesday morning before each football weekend. It runs in the background in n8n. **It never emails members.**
 
 ## What it does
 
@@ -53,7 +53,7 @@ The rules Claude follows (Gown and Town, spouses, phone numbers, mapping times t
 
 Every Wednesday at 7 a.m. (Eastern), if a weekend's Friday is two days later, it reads the sheet and creates an email to the Chef (`chefReport.to`, copying `chefReport.cc`) titled "**Missouri covers for the Chef**": parties and covers for Friday Supper, Brunch and Saturday Supper (Full Fare, Light Fare, fare not given), the dietary restrictions, the requests with no covers or experience, and the requests made after the deadline. It counts only Active rows at their latest version.
 
-By default it is left in secretary@'s **Drafts** for someone to check and send.
+It is sent from secretary@ straight away (`"mode": "send"`); set `"mode": "draft"` to leave it in Drafts for someone to check first.
 
 ## Set up (once)
 
@@ -101,7 +101,7 @@ The build checks that `friday` is a Friday and `saturday` a Saturday. Past weeke
 
 ## Send the Chef report automatically
 
-Set `"mode": "send"` in `chefReport` and push. The report is then created and sent at once. `"mode": "draft"` (the default) leaves it in Drafts. `"enabled": false` turns it off; `to`, `cc` and `hour` change who gets it and when.
+Set `"mode": "send"` in `chefReport` and push. The report is then created and sent at once. `"mode": "draft"` leaves it in Drafts. `"enabled": false` turns it off; `to`, `cc` and `hour` change who gets it and when.
 
 ## Good to know
 

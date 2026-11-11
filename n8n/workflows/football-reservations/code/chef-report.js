@@ -68,8 +68,11 @@ const table = (head, body) =>
   '</table>';
 const section = (title, list, head, cells) => `<h3>${esc(title)}</h3>` + (list.length ? table(head, list.map(cells)) : '<p>None.</p>');
 
+// "2026-11-13" -> "Friday, November 13".
+const longDate = (iso) =>
+  new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric' });
 const html =
-  `<p>Good morning,</p><p>Here are the football-weekend reservations for ${esc(W.name)} (Friday ${esc(W.friday)} and Saturday ${esc(W.saturday)}), as of ${esc(cfg.today)}. Only active requests are counted, each at its latest version.</p>` +
+  `<p>Good morning, Chef,</p><p>Here are the reservations for ${esc(W.name)} weekend (${esc(longDate(W.friday))} and ${esc(longDate(W.saturday))}), as of ${esc(longDate(cfg.today))} at 7 a.m. Only active requests are counted, each at its latest version.</p>` +
   table(
     ['Experience', 'Parties', 'Covers', 'Parties without covers'],
     [...totals.map((t) => [t.label, t.parties, t.covers, t.unknownCovers]), ['Total', totals.reduce((s, t) => s + t.parties, 0), totals.reduce((s, t) => s + t.covers, 0), totals.reduce((s, t) => s + t.unknownCovers, 0)]],

@@ -580,8 +580,9 @@ describe('Chef report', () => {
     assert.deepEqual(r.dietary, ['MIZ-072']);
     assert.deepEqual(r.incomplete, ['MIZ-073', 'MIZ-075']);
     assert.deepEqual(r.late, ['MIZ-074']);
-    assert.equal(r.send, false);
+    assert.equal(r.send, true); // n8n/config/football.json sends it without review
     assert.equal(r.draft.subject, 'Missouri covers for the Chef');
+    assert.match(r.draft.body.content, /Friday, November 13 and Saturday, November 14\), as of Wednesday, November 11 at 7 a\.m\./);
     assert.deepEqual(r.draft.toRecipients, [{ emailAddress: { address: 'acasey@theindigoroad.com' } }]);
     assert.deepEqual(r.draft.ccRecipients, [{ emailAddress: { address: 'bcox@thoreaucapital.com' } }]);
     assert.match(r.draft.body.content, /<table/);

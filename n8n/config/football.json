@@ -43,7 +43,7 @@
 
   "chefReport": {
     "enabled": true,
-    "mode": "draft",
+    "mode": "send",
     "to": ["acasey@theindigoroad.com"],
     "cc": ["bcox@thoreaucapital.com"],
     "hour": 7

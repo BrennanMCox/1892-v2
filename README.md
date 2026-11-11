@@ -5,7 +5,7 @@ Automations for the 1892 Club, built as [n8n](https://n8n.io) workflows. GitHub 
 | Workflow | What it does |
 |---|---|
 | [Secretary Inbox Export](docs/replay.md) | Run by hand: saves recent secretary@ mail as drafts' attachments, to test the Secretary Inbox on real email. Sends nothing. |
-| [Football Reservations](docs/football.md) | Keeps the "1892 Football Weekend Reservations" Google Sheet up to date from email to secretary@ every 15 minutes while a football weekend is open, and drafts the Chef's covers report the Wednesday before. Never emails members. |
+| [Football Reservations](docs/football.md) | Keeps the "1892 Football Weekend Reservations" Google Sheet up to date from email to secretary@ every 15 minutes while a football weekend is open, and emails the Chef's covers report at 7 a.m. the Wednesday before. Never emails members. |
 | [Secretary Inbox](docs/secretary.md) | Answers email to secretary@1892club.com within 18 minutes from 7 a.m. to 7 p.m. (Eastern), and within 75 minutes overnight. Routine questions get a full reply; anything sensitive gets a holding reply plus a draft for the Club team to review. |
 
 ## Layout
