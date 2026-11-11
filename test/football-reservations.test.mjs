@@ -61,7 +61,7 @@ const SHEET = () => ({
   values: [
     HEADER,
     sheetRow({ id: 'MIZ-065', logged: '2026-11-07 09:00', first: 'Ann', last: 'Example', email: 'ann@example.com', exp: 'Saturday Supper', fare: 'Full Fare', covers: 2 }),
-    sheetRow({ id: 'MIZ-070', logged: '2026-11-08 10:00', first: 'Ann', last: 'Example', email: 'ann@example.com', exp: 'Saturday Supper', fare: 'Full Fare', covers: 4, pref: 'Downstairs = Oak Steakhouse', check: 'Confirm time' }),
+    sheetRow({ id: 'MIZ-070', logged: '2026-11-08 10:00', first: 'Ann', last: 'Example', email: 'ann@example.com', exp: 'Saturday Supper', fare: 'Full Fare', covers: 4, pref: 'Downstairs', check: 'Confirm time' }),
     sheetRow({ id: 'MIZ-071', logged: '2026-11-09 11:00', first: 'Bob', last: 'Sample', email: 'bob@example.com', exp: 'Friday Supper', covers: 2, booked: 'Yes' }),
     sheetRow({ id: 'GT-005', logged: '2026-11-10 12:00', weekend: 'Georgia Tech', first: 'Cara', last: 'Test', email: 'cara@example.org', exp: 'Brunch', covers: 6 }),
     sheetRow({ id: 'MIZ-009', logged: '2026-11-05 08:00', first: 'Dan', last: 'Demo', email: 'dan@example.net', exp: 'Brunch', covers: 3, status: 'Cancelled' }),
@@ -393,7 +393,7 @@ describe('Plan Writes', () => {
     assert.equal(row[11], 6);
     assert.equal(row[9], 'Saturday Supper');
     assert.equal(row[10], 'Full Fare');
-    assert.equal(row[13], 'Downstairs = Oak Steakhouse');
+    assert.equal(row[13], 'Downstairs');
     assert.equal(row[5], "'ann@example.com");
     assert.equal(row[20], "'Confirm time"); // open check carried forward
     assert.equal(row[21], "'Make it six");

@@ -36,7 +36,7 @@ const ALLOWED = {
     '10:00 a.m. to 11:00 a.m.', '11:00 a.m. to 12:00 p.m.', '12:00 p.m. to 1:00 p.m.', '1:00 p.m. to 2:00 p.m.',
     '5:00 p.m. to 7:30 p.m.', '7:30 p.m. to 9:00 p.m.', '9:00 p.m. to 10:30 p.m.',
   ],
-  preference: ['Downstairs = Oak Steakhouse', 'Upstairs Bar & High-Tops', 'Upstairs Locker Room'],
+  preference: ['Downstairs', 'Upstairs Bar & High-Tops', 'Upstairs Locker Room'],
 };
 const LABEL = {
   member_category: 'Member Category', accompanied: 'Accompanied', experience: 'Experience', fare: 'Fare',

@@ -131,7 +131,7 @@
                 "type": "string",
                 "enum": [
                   "",
-                  "Downstairs = Oak Steakhouse",
+                  "Downstairs",
                   "Upstairs Bar & High-Tops",
                   "Upstairs Locker Room"
                 ]

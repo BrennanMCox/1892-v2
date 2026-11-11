@@ -26,7 +26,7 @@ Anything else is `not_football`: other dates (Thursday, a Sunday, other weeks), 
 - `fare`: Full Fare or Light Fare, for Saturday Supper only. Empty if not given.
 - `covers`: the number of people, as a whole number. Empty if not stated. Never guess.
 - `arrival_window`: exactly one of the listed windows, or empty if no time was given. A time exactly on a boundary goes in the later window (7:30 p.m. is "7:30 p.m. to 9:00 p.m."). A Google-Form style window such as "6:30-8:00" maps to the closest listed window, and you put the original wording in `special_requests`. Never invent a time.
-- `preference`: "Downstairs = Oak Steakhouse" when they say Oak or downstairs; "Upstairs Bar & High-Tops" or "Upstairs Locker Room" when they name one. Empty if not stated, or if they only say "upstairs".
+- `preference`: "Downstairs" when they say Oak, Oak Steakhouse or downstairs; "Upstairs Bar & High-Tops" or "Upstairs Locker Room" when they name one. Empty if not stated, or if they only say "upstairs".
 - `dietary_restrictions`: allergies and dietary needs they mention.
 - `special_requests`: the time they actually asked for, names in the party, seating wishes, occasions and other notes.
 - `club_reply`: what the Club has said so far: "No reply", "Club asked a question", "Acknowledged", "Confirmed", or a short phrase. For a new request with no Club reply in the thread, "No reply".
