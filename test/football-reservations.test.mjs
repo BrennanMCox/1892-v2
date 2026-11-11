@@ -212,7 +212,7 @@ describe('Select Messages', () => {
       mail({ id: 'keep' }),
       mail({ id: 'draft', isDraft: true }),
       mail({ id: 'invite', '@odata.type': '#microsoft.graph.eventMessageRequest' }),
-      mail({ id: 'chef', from: club, subject: 'Missouri covers for the Chef', toRecipients: [{ emailAddress: { address: 'chef@example.com' } }] }),
+      mail({ id: 'chef', from: club, subject: 'Requested Covers, Missouri Weekend', toRecipients: [{ emailAddress: { address: 'chef@example.com' } }] }),
       mail({ id: 'chef-to', from: club, subject: 'Covers', toRecipients: [{ emailAddress: { address: 'ACasey@theindigoroad.com' } }], ccRecipients: [{ emailAddress: { address: 'bcox@thoreaucapital.com' } }] }),
       mail({ id: 'club-reply', from: club, toRecipients: [{ emailAddress: { address: 'eve@example.com' } }] }),
     ];
@@ -575,16 +575,21 @@ describe('Chef report', () => {
       Brunch: [0, 0, 0], // MIZ-009 is cancelled; GT-005 is another weekend
       'Saturday Supper, Full Fare': [1, 4, 0], // MIZ-070 only; MIZ-065 is superseded
       'Saturday Supper, Light Fare': [1, 3, 0],
-      'Saturday Supper, fare not given': [1, 0, 1],
+      'Saturday Supper, Fare Unclear': [1, 0, 1],
     });
     assert.deepEqual(r.dietary, ['MIZ-072']);
     assert.deepEqual(r.incomplete, ['MIZ-073', 'MIZ-075']);
     assert.deepEqual(r.late, ['MIZ-074']);
     assert.equal(r.send, true); // n8n/config/football.json sends it without review
-    assert.equal(r.draft.subject, 'Missouri covers for the Chef');
-    assert.match(r.draft.body.content, /Friday, November 13 and Saturday, November 14\), as of Wednesday, November 11 at 7 a\.m\./);
+    assert.equal(r.draft.subject, 'Requested Covers, Missouri Weekend');
+    assert.match(r.draft.body.content, /Good morning, Chef Allen,.*For Missouri Weekend, here are the requested covers: <a href="https:\/\/docs\.google\.com\/spreadsheets\/d\//s);
+    assert.match(r.draft.body.content, /Needs to confirm: Covers, Fare \(Full or Light\)/);
+    assert.match(r.draft.body.content, /Sincerely,<br>\/claude<\/p>$/);
     assert.deepEqual(r.draft.toRecipients, [{ emailAddress: { address: 'acasey@theindigoroad.com' } }]);
-    assert.deepEqual(r.draft.ccRecipients, [{ emailAddress: { address: 'bcox@thoreaucapital.com' } }]);
+    assert.deepEqual(
+      r.draft.ccRecipients.map((x) => x.emailAddress.address),
+      ['spalmer@theindigoroad.com', 'mdelano@theindigoroad.com', 'jkeeler@theindigoroad.com', 'bcox@thoreaucapital.com'],
+    );
     assert.match(r.draft.body.content, /<table/);
     assert.doesNotMatch(r.draft.body.content, /Dan Demo|Cara/);
   });

@@ -46,7 +46,7 @@ const LINES = [
   { label: 'Brunch', test: (r) => r.experience === 'Brunch' },
   { label: 'Saturday Supper, Full Fare', test: (r) => r.experience === 'Saturday Supper' && r.fare === 'Full Fare' },
   { label: 'Saturday Supper, Light Fare', test: (r) => r.experience === 'Saturday Supper' && r.fare === 'Light Fare' },
-  { label: 'Saturday Supper, fare not given', test: (r) => r.experience === 'Saturday Supper' && !r.fare },
+  { label: 'Saturday Supper, Fare Unclear', test: (r) => r.experience === 'Saturday Supper' && !r.fare },
 ];
 const totals = LINES.map((l) => {
   const list = live.filter(l.test);
@@ -58,8 +58,16 @@ const totals = LINES.map((l) => {
   };
 });
 const name = (r) => `${r.first_name} ${r.last_name}`.trim() || r.email;
+const expOf = (r) => [r.experience, r.fare].filter(Boolean).join(', ');
 const dietary = live.filter((r) => String(r.dietary_restrictions).trim());
-const incomplete = live.filter((r) => !r.experience || coversOf(r) === null);
+// What the Club still has to get from the member before the Chef can count it.
+const missingOf = (r) =>
+  [
+    !r.experience && 'Experience',
+    coversOf(r) === null && 'Covers',
+    r.experience === 'Saturday Supper' && !r.fare && 'Fare (Full or Light)',
+  ].filter(Boolean);
+const incomplete = live.filter((r) => missingOf(r).length);
 const late = live.filter((r) => r.by_deadline === 'No');
 
 const table = (head, body) =>
@@ -67,20 +75,18 @@ const table = (head, body) =>
   body.map((cells) => `<tr>${cells.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('') +
   '</table>';
 const section = (title, list, head, cells) => `<h3>${esc(title)}</h3>` + (list.length ? table(head, list.map(cells)) : '<p>None.</p>');
+const sheetUrl = `https://docs.google.com/spreadsheets/d/${cfg.spreadsheetId}`;
 
-// "2026-11-13" -> "Friday, November 13".
-const longDate = (iso) =>
-  new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric' });
 const html =
-  `<p>Good morning, Chef,</p><p>Here are the reservations for ${esc(W.name)} weekend (${esc(longDate(W.friday))} and ${esc(longDate(W.saturday))}), as of ${esc(longDate(cfg.today))} at 7 a.m. Only active requests are counted, each at its latest version.</p>` +
+  `<p>Good morning, Chef Allen,</p><p>For ${esc(W.name)} Weekend, here are the requested covers: <a href="${esc(sheetUrl)}">1892 Football Weekend Reservations</a>. To be sure, these requests have neither been confirmed nor inputted into OpenTable.</p>` +
   table(
-    ['Experience', 'Parties', 'Covers', 'Parties without covers'],
+    ['Experience', 'Members', 'Covers', 'Parties without covers'],
     [...totals.map((t) => [t.label, t.parties, t.covers, t.unknownCovers]), ['Total', totals.reduce((s, t) => s + t.parties, 0), totals.reduce((s, t) => s + t.covers, 0), totals.reduce((s, t) => s + t.unknownCovers, 0)]],
   ) +
-  section('Dietary restrictions', dietary, ['Request', 'Name', 'Experience', 'Covers', 'Dietary restrictions'], (r) => [r.id, name(r), [r.experience, r.fare].filter(Boolean).join(', '), r.covers, r.dietary_restrictions]) +
-  section('Requests without covers or experience', incomplete, ['Request', 'Name', 'Experience', 'Covers', 'Needs a check'], (r) => [r.id, name(r), [r.experience, r.fare].filter(Boolean).join(', ') || '(not given)', r.covers === '' ? '(not given)' : r.covers, r.needs_check]) +
-  section('Requested after the deadline', late, ['Request', 'Name', 'Experience', 'Covers'], (r) => [r.id, name(r), [r.experience, r.fare].filter(Boolean).join(', '), r.covers]) +
-  '<p>With best regards,<br>The Office of the Secretary<br>The 1892 Club</p>';
+  section('Dietary restrictions', dietary, ['Request', 'Member', 'Experience', 'Covers', 'Restrictions'], (r) => [r.id, name(r), expOf(r), r.covers, r.dietary_restrictions]) +
+  section('Requests without Experience, Covers, or Fare', incomplete, ['Request', 'Name', 'Experience', 'Covers', 'Needs a check'], (r) => [r.id, name(r), expOf(r) || '(not given)', r.covers === '' ? '(not given)' : r.covers, `Needs to confirm: ${missingOf(r).join(', ')}`]) +
+  section('Requested after Midnight', late, ['Request', 'Name', 'Experience', 'Covers'], (r) => [r.id, name(r), expOf(r), r.covers]) +
+  '<p>Sincerely,<br>/claude</p>';
 
 const recipients = (list) => (list || []).map((address) => ({ emailAddress: { address } }));
 return [
@@ -93,7 +99,7 @@ return [
       late: late.map((r) => r.id),
       send: cfg.chefReport.mode === 'send',
       draft: {
-        subject: `${W.name} covers for the Chef`,
+        subject: `Requested Covers, ${W.name} Weekend`,
         body: { contentType: 'HTML', content: html },
         toRecipients: recipients(cfg.chefReport.to),
         ccRecipients: recipients(cfg.chefReport.cc),

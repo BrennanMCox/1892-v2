@@ -51,7 +51,7 @@ The rules Claude follows (Gown and Town, spouses, phone numbers, mapping times t
 
 ### The Chef report
 
-Every Wednesday at 7 a.m. (Eastern), if a weekend's Friday is two days later, it reads the sheet and creates an email to the Chef (`chefReport.to`, copying `chefReport.cc`) titled "**Missouri covers for the Chef**": parties and covers for Friday Supper, Brunch and Saturday Supper (Full Fare, Light Fare, fare not given), the dietary restrictions, the requests with no covers or experience, and the requests made after the deadline. It counts only Active rows at their latest version.
+Every Wednesday at 7 a.m. (Eastern), if a weekend's Friday is two days later, it reads the sheet and creates an email to the Chef (`chefReport.to`, copying `chefReport.cc`) titled "**Requested Covers, Missouri Weekend**", with a link to the sheet and a note that the requests are neither confirmed nor in OpenTable: members and covers for Friday Supper, Brunch and Saturday Supper (Full Fare, Light Fare, Fare Unclear), the dietary restrictions, the requests still missing an experience, covers or a Saturday fare (and what each must confirm), and the requests made after midnight on the deadline. Signed "Sincerely, /claude". It counts only Active rows at their latest version.
 
 It is sent from secretary@ straight away (`"mode": "send"`); set `"mode": "draft"` to leave it in Drafts for someone to check first.
 

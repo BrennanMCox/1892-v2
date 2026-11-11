@@ -45,7 +45,7 @@
     "enabled": true,
     "mode": "send",
     "to": ["acasey@theindigoroad.com"],
-    "cc": ["bcox@thoreaucapital.com"],
+    "cc": ["spalmer@theindigoroad.com", "mdelano@theindigoroad.com", "jkeeler@theindigoroad.com", "bcox@thoreaucapital.com"],
     "hour": 7
   }
 }

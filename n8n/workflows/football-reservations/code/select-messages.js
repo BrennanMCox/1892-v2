@@ -20,7 +20,7 @@ const automated = (cfg.automatedSenders || []).map((s) => new RegExp(s, 'i'));
 const inProgress = cfg.secretaryInProgressCategories || [];
 const chefPeople = new Set([...(cfg.chefReport?.to || []), ...(cfg.chefReport?.cc || [])].map((a) => String(a).toLowerCase()));
 function isChefReport(m) {
-  if (/ covers for the Chef$/i.test(String(m.subject || '').trim())) return true;
+  if (/^Requested Covers, .+ Weekend$| covers for the Chef$/i.test(String(m.subject || '').trim())) return true;
   const to = [...(m.toRecipients || []), ...(m.ccRecipients || [])].map((r) => String(r.emailAddress?.address || '').toLowerCase());
   return to.length > 0 && to.every((a) => chefPeople.has(a));
 }
